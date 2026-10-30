@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0a0a0b; --panel:#101012;
+    --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.06);
+    --fg:#e9e7e2; --dim:rgba(233,231,226,.66); --dim2:rgba(233,231,226,.54);
+    --acc:oklch(0.80 0.14 78); --acc-tint:oklch(0.80 0.14 78 / .16);
+    --ok:oklch(0.78 0.13 155); --bad:oklch(0.72 0.17 40);
+    --mono:'Geist Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;width:340px;background:var(--bg);color:var(--fg);font:13px/1.5 var(--mono)}
+  header{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line)}
+  .brand{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim)}
+  .pill{font-size:10px;text-transform:uppercase;letter-spacing:.08em;display:flex;align-items:center;gap:6px;color:var(--dim2)}
+  .pill::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+  .pill.live{color:var(--acc)} .pill.ok{color:var(--ok)}
+  section{padding:12px;border-bottom:1px solid var(--line2)}
+  section:last-child{border-bottom:0}
+  .label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim2);margin-bottom:6px}
+  .dim{color:var(--dim)}
+  .err{color:var(--bad)}
+  .row{display:flex;gap:6px;align-items:center}
+  .row>*{min-width:0}
+  input{flex:1;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:2px;padding:6px 8px;font:12px var(--mono)}
+  button{background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:2px;padding:6px 10px;font:12px var(--mono);cursor:pointer;white-space:nowrap}
+  button:hover{border-color:var(--dim2)}
+  button.primary{color:var(--acc);border-color:var(--acc)}
+  button.primary:hover{background:var(--acc-tint)}
+  button.danger{color:var(--bad);border-color:var(--bad)}
+  button.x{padding:0 6px;border:0;color:var(--dim2)}
+  ol{margin:0;padding:0;list-style:none}
+  li{display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line2)}
+  li span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .num{font-variant-numeric:tabular-nums;color:var(--dim2);width:18px}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">JukeBot P2P</span>
+  <span id="pill" class="pill">no room</span>
+</header>
+
+<div id="out" hidden>
+  <section>
+    <div class="label">Start</div>
+    <p id="start-hint" class="dim" style="margin:0 0 8px">Open a video on YouTube or YouTube Music, then start a room from that tab.</p>
+    <button id="start" class="primary" hidden>Start a room here</button>
+  </section>
+  <section>
+    <div class="label">Join</div>
+    <div class="row">
+      <input id="invite" placeholder="Invite link or room code">
+      <button id="join">Join</button>
+    </div>
+  </section>
+</div>
+
+<div id="in" hidden>
+  <section>
+    <div class="label">Invite</div>
+    <div class="row">
+      <input id="link" readonly>
+      <button id="copy">Copy</button>
+    </div>
+    <p id="where" class="dim" style="margin:8px 0 0"></p>
+  </section>
+  <section>
+    <div class="label">Up next</div>
+    <ol id="queue"></ol>
+    <p id="queue-empty" class="dim" style="margin:0">Queue is empty. When a video ends, the site's own autoplay picks the next one.</p>
+    <button id="add" style="margin-top:8px" hidden>Add this tab's video</button>
+  </section>
+  <section>
+    <button id="leave" class="danger">Leave room</button>
+  </section>
+</div>
+
+<section id="error" class="err" hidden></section>
+<script src="popup.js"></script>
+</body>
+</html>

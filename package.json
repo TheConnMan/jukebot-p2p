@@ -1,0 +1,11 @@
+{
+  "name": "jukebot-p2p",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:e2e": "node test/e2e.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.16.0"
+  }
+}
