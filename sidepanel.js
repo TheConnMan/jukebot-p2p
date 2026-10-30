@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id)
 
 let status = null
+let userId = null // stable per profile, so your own messages stay yours across rejoins
 
 const time = ts => new Date(ts).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})
 
@@ -26,7 +27,7 @@ async function refresh() {
     const div = document.createElement('div')
     div.className = 'msg'
     const who = document.createElement('span')
-    who.className = m.by === status.selfId ? 'who self' : 'who'
+    who.className = m.by === userId ? 'who self' : 'who'
     who.textContent = m.name || 'someone'
     const ts = document.createElement('span')
     ts.className = 'ts'
@@ -44,7 +45,7 @@ $('form').onsubmit = async e => {
   const text = $('text').value.trim()
   if (!text) return
   $('text').value = ''
-  await chrome.runtime.sendMessage({to: 'offscreen', type: 'say', name: $('name').value.trim(), text})
+  await chrome.runtime.sendMessage({to: 'offscreen', type: 'say', by: userId, name: $('name').value.trim(), text})
 }
 
 $('name').onchange = () => chrome.storage.local.set({name: $('name').value.trim()})
@@ -53,11 +54,10 @@ chrome.runtime.onMessage.addListener(msg => {
   if (msg.type === 'chat' || msg.type === 'push') refresh()
 })
 
-chrome.storage.local.get('name').then(({name}) => {
-  if (!name) {
-    name = `friend-${Math.random().toString(16).slice(2, 6)}`
-    chrome.storage.local.set({name})
-  }
+chrome.storage.local.get(['name', 'userId']).then(stored => {
+  const name = stored.name || `friend-${Math.random().toString(16).slice(2, 6)}`
+  userId = stored.userId || crypto.randomUUID()
+  chrome.storage.local.set({name, userId})
   $('name').value = name
+  refresh()
 })
-refresh()

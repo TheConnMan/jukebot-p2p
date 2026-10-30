@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+Your chat identity is now stable: a per-profile ID saved with your name, so your own messages stay marked as yours after you rejoin.
+
 ## 0.2.0
 
 Chat in Chrome's side panel, sent browser to browser. Someone who joins late gets the recent messages from the people already in the room.

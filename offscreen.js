@@ -91,14 +91,14 @@ function addChat(msgs) {
   for (const m of msgs) {
     if (typeof m?.id !== 'string' || typeof m.text !== 'string' || seen.has(m.id)) continue
     seen.add(m.id)
-    chat.push({id: m.id, by: String(m.by ?? ''), name: String(m.name ?? '').slice(0, 40), text: m.text.slice(0, 1000), ts: Number(m.ts) || Date.now()})
+    chat.push({id: m.id, by: String(m.by ?? '').slice(0, 40), name: String(m.name ?? '').slice(0, 40), text: m.text.slice(0, 1000), ts: Number(m.ts) || Date.now()})
   }
   chat = chat.sort((a, b) => a.ts - b.ts).slice(-CHAT_KEEP)
   chrome.runtime.sendMessage({to: 'chat', type: 'chat'}).catch(() => {})
 }
 
-function say(name, text) {
-  const m = {id: crypto.randomUUID(), by: selfId, name, text, ts: Date.now()}
+function say(by, name, text) {
+  const m = {id: crypto.randomUUID(), by, name, text, ts: Date.now()}
   addChat([m])
   sendChat([m])
 }
@@ -121,7 +121,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       reply(status())
       break
     case 'say':
-      if (room && sender.origin === location.origin) say(String(msg.name).slice(0, 40), String(msg.text).slice(0, 1000))
+      if (room && sender.origin === location.origin) say(String(msg.by).slice(0, 40), String(msg.name).slice(0, 40), String(msg.text).slice(0, 1000))
       reply(true)
       break
     case 'hello':
