@@ -59,7 +59,7 @@ function renderLog(chat, inRoom) {
       else div.append(m.text)
       return div
     }
-    const div = el('div', `msg ${hue(m.by)}${m.by === userId ? ' self' : ''}`)
+    const div = el('div', `msg ${hue(m.by)}`)
     div.append(person(m.name, m.by), el('span', 'ts', time(m.ts)), el('div', 'text', m.text))
     return div
   }))

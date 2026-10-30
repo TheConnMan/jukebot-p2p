@@ -13,7 +13,6 @@
     /* One stable color per person, picked by hashing their userId. */
     --u0:oklch(0.78 0.13 25); --u1:oklch(0.80 0.14 70); --u2:oklch(0.82 0.13 115); --u3:oklch(0.78 0.13 160);
     --u4:oklch(0.78 0.11 205); --u5:oklch(0.74 0.12 250); --u6:oklch(0.74 0.13 295); --u7:oklch(0.76 0.13 340);
-    --self-tint:rgba(255,255,255,.035);
     --mono:'Geist Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
@@ -44,7 +43,6 @@
   .u0{--user:var(--u0)} .u1{--user:var(--u1)} .u2{--user:var(--u2)} .u3{--user:var(--u3)}
   .u4{--user:var(--u4)} .u5{--user:var(--u5)} .u6{--user:var(--u6)} .u7{--user:var(--u7)}
   .who{color:var(--user,var(--acc2))}
-  .msg.self{border-left:2px solid var(--user,var(--acc2));padding-left:8px;background:var(--self-tint)}
   .ts{color:var(--dim2);font-size:11px;font-variant-numeric:tabular-nums;margin-left:6px}
   .empty{color:var(--dim);margin:0}
   #typing{padding:0 12px;height:18px;font-size:11px;color:var(--dim)}

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+Removed the left bar and tint on your own chat messages; "(you)" after your name still marks them.
+
 ## 0.3.1
 
 Bug fixes: opening an old invite link no longer switches the room to that link's video; a skip logs one line; activity lines have no time and stay activity lines in history sent to late joiners; history sent on join no longer fires notifications or unread counts.
