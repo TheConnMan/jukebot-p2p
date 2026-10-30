@@ -9,7 +9,11 @@
     --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.06);
     --fg:#e9e7e2; --dim:rgba(233,231,226,.66); --dim2:rgba(233,231,226,.54);
     --acc:oklch(0.80 0.14 78); --acc2:oklch(0.86 0.11 78);
-    --ok:oklch(0.78 0.13 155);
+    --ok:oklch(0.78 0.13 155); --bad:oklch(0.72 0.17 40);
+    /* One stable color per person, picked by hashing their userId. */
+    --u0:oklch(0.78 0.13 25); --u1:oklch(0.80 0.14 70); --u2:oklch(0.82 0.13 115); --u3:oklch(0.78 0.13 160);
+    --u4:oklch(0.78 0.11 205); --u5:oklch(0.74 0.12 250); --u6:oklch(0.74 0.13 295); --u7:oklch(0.76 0.13 340);
+    --self-tint:rgba(255,255,255,.035);
     --mono:'Geist Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
@@ -20,31 +24,82 @@
   .pill{font-size:10px;text-transform:uppercase;letter-spacing:.08em;display:flex;align-items:center;gap:6px;color:var(--dim2)}
   .pill::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
   .pill.live{color:var(--acc)} .pill.ok{color:var(--ok)}
-  .me{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line2);font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim2)}
-  #log{flex:1;overflow-y:auto;padding:8px 12px}
+  .bar{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line2)}
+  .label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim2)}
+  .dim{color:var(--dim)}
+  .one{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  #here{padding:6px 12px;border-bottom:1px solid var(--line2);font-size:12px}
+  #up{padding:8px 12px;border-bottom:1px solid var(--line);flex:0 0 auto}
+  .head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}
+  #now{display:flex;gap:8px;font-size:12px;margin-bottom:4px}
+  #now-clock{flex:0 0 auto;color:var(--dim2);font-variant-numeric:tabular-nums}
+  ol{margin:0;padding:0;list-style:none;max-height:30vh;overflow-y:auto}
+  li{display:flex;gap:6px;align-items:flex-start;padding:4px 0;border-bottom:1px solid var(--line2)}
+  li .body{flex:1;min-width:0}
+  li .meta{font-size:11px;color:var(--dim2);font-variant-numeric:tabular-nums}
+  .num{font-variant-numeric:tabular-nums;color:var(--dim2);flex:0 0 18px}
+  #log{flex:1;overflow-y:auto;padding:8px 12px;min-height:80px}
   .msg{padding:4px 0;border-bottom:1px solid var(--line2);overflow-wrap:anywhere}
-  .who{color:var(--acc2)} .who.self{color:var(--ok)}
+  .msg.event{color:var(--dim2);font-size:12px}
+  .u0{--user:var(--u0)} .u1{--user:var(--u1)} .u2{--user:var(--u2)} .u3{--user:var(--u3)}
+  .u4{--user:var(--u4)} .u5{--user:var(--u5)} .u6{--user:var(--u6)} .u7{--user:var(--u7)}
+  .who{color:var(--user,var(--acc2))}
+  .msg.self{border-left:2px solid var(--user,var(--acc2));padding-left:8px;background:var(--self-tint)}
   .ts{color:var(--dim2);font-size:11px;font-variant-numeric:tabular-nums;margin-left:6px}
-  .empty{color:var(--dim)}
-  form{display:flex;gap:6px;padding:10px 12px;border-top:1px solid var(--line)}
-  input{min-width:0;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:2px;padding:6px 8px;font:12px var(--mono)}
-  #text{flex:1}
-  #name{flex:1;text-transform:none;letter-spacing:0}
-  button{background:transparent;color:var(--acc);border:1px solid var(--acc);border-radius:2px;padding:6px 10px;font:12px var(--mono);cursor:pointer}
+  .empty{color:var(--dim);margin:0}
+  #typing{padding:0 12px;height:18px;font-size:11px;color:var(--dim)}
+  form{display:flex;gap:6px}
+  #form{padding:6px 12px 10px;border-top:1px solid var(--line);align-items:flex-end}
+  textarea{flex:1;min-width:0;resize:none;overflow-y:hidden;max-height:calc(6 * 1.5em + 14px);background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:2px;padding:6px 8px;font:12px/1.5 var(--mono)}
+  .text{white-space:pre-wrap}
+  input[type=text],input:not([type]){min-width:0;flex:1;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:2px;padding:6px 8px;font:12px var(--mono)}
+  #add-form{margin-top:6px}
+  #error{color:var(--bad);font-size:11px;margin-top:4px}
+  button{background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:2px;padding:4px 10px;font:12px var(--mono);cursor:pointer;white-space:nowrap}
+  button:hover{border-color:var(--dim2)}
+  button.primary{color:var(--acc);border-color:var(--acc)}
+  button.x{padding:0 4px;border:0;color:var(--dim2)}
   button:disabled{color:var(--dim2);border-color:var(--line);cursor:default}
+  .toggles{display:flex;gap:12px;align-items:center;padding:6px 12px;border-top:1px solid var(--line2);font-size:11px;color:var(--dim)}
+  .toggles label{display:flex;gap:4px;align-items:center;cursor:pointer}
+  [hidden]{display:none!important}
 </style>
 </head>
 <body>
 <header>
-  <span class="brand">JukeBot chat</span>
+  <span class="brand">JukeBot</span>
   <span id="pill" class="pill">no room</span>
 </header>
-<label class="me">Name <input id="name" maxlength="40"></label>
+<label class="bar"><span class="label">Name</span><input id="name" maxlength="40"></label>
+<div id="here" class="one dim" hidden></div>
+
+<section id="up" hidden>
+  <div class="head">
+    <span class="label">Up next</span>
+    <button id="skip" class="primary">Skip</button>
+  </div>
+  <div id="now" class="dim"><span id="now-title" class="one"></span><span id="now-clock"></span></div>
+  <ol id="queue"></ol>
+  <p id="queue-empty" class="empty" style="font-size:12px">Queue is empty. Right-click any YouTube link to add it, or paste one below.</p>
+  <form id="add-form">
+    <input id="link" placeholder="Add a YouTube link" autocomplete="off">
+    <button>Add</button>
+  </form>
+  <div id="error" hidden></div>
+</section>
+
 <div id="log"></div>
+<div id="typing"></div>
 <form id="form">
-  <input id="text" maxlength="1000" placeholder="Say something" autocomplete="off">
-  <button id="send">Send</button>
+  <textarea id="text" rows="1" maxlength="1000" placeholder="Say something"></textarea>
+  <button id="send" class="primary">Send</button>
 </form>
+<div class="toggles">
+  <span class="label">Notify</span>
+  <label><input type="checkbox" id="notify-chat"> chat</label>
+  <label><input type="checkbox" id="notify-songs"> songs</label>
+  <label><input type="checkbox" id="notify-people"> people</label>
+</div>
 <script src="sidepanel.js"></script>
 </body>
 </html>

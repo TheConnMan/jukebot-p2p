@@ -33,10 +33,12 @@
   button.primary:hover{background:var(--acc-tint)}
   button.danger{color:var(--bad);border-color:var(--bad)}
   button.x{padding:0 6px;border:0;color:var(--dim2)}
+  button:disabled{color:var(--dim2);border-color:var(--line);cursor:default}
   ol{margin:0;padding:0;list-style:none}
   li{display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line2)}
   li span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .num{font-variant-numeric:tabular-nums;color:var(--dim2);width:18px}
+  li span.by{flex:0 1 auto;max-width:30%;color:var(--dim2);font-size:11px}
   [hidden]{display:none!important}
 </style>
 </head>
@@ -73,8 +75,11 @@
   <section>
     <div class="label">Up next</div>
     <ol id="queue"></ol>
-    <p id="queue-empty" class="dim" style="margin:0">Queue is empty. When a video ends, the site's own autoplay picks the next one.</p>
-    <button id="add" style="margin-top:8px" hidden>Add this tab's video</button>
+    <p id="queue-empty" class="dim" style="margin:0">Queue is empty. Right-click any YouTube link to add it. When a video ends with nothing queued, the site's own autoplay picks the next one.</p>
+    <div class="row" style="margin-top:8px">
+      <button id="add" hidden>Add this tab's video</button>
+      <button id="skip">Skip</button>
+    </div>
   </section>
   <section class="row">
     <button id="chat" class="primary">Open chat</button>

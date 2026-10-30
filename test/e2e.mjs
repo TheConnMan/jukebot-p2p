@@ -4,6 +4,9 @@
 // Signaling goes over the public Nostr relays, as it does for real users.
 //
 //   CHROME=/usr/bin/google-chrome SITE=www.youtube.com npm run test:e2e
+//
+// SITE_B puts browser B on another site than A (for example A on
+// www.youtube.com and B on music.youtube.com) by rewriting the invite host.
 
 import puppeteer from 'puppeteer-core'
 import {mkdtempSync, rmSync} from 'node:fs'
@@ -13,6 +16,7 @@ import {join, resolve} from 'node:path'
 const EXT = resolve(import.meta.dirname, '..')
 const CHROME = process.env.CHROME ?? '/usr/bin/google-chrome'
 const SITE = process.env.SITE ?? 'www.youtube.com'
+const SITE_B = process.env.SITE_B ?? SITE
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 const LONG = 'aqz-KE-bpKQ' // Big Buck Bunny, ~10 min
 const SHORT = 'jNQXAC9IVRw' // Me at the zoo, 19 s
@@ -47,6 +51,7 @@ async function extensionPage(browser) {
 const player = page => page.evaluate(() => {
   const el = document.querySelector('video.html5-main-video') || document.querySelector('video')
   return {
+    host: location.host,
     v: new URL(location.href).searchParams.get('v'),
     t: el?.currentTime ?? null,
     paused: el?.paused ?? null,
@@ -82,6 +87,20 @@ async function inSync(label, a, b, extra = () => true) {
   })
 }
 
+const bgCall = (pop, msg) => pop.evaluate(m => chrome.runtime.sendMessage({to: 'bg', ...m}), msg)
+const offCall = (pop, msg) => pop.evaluate(m => chrome.runtime.sendMessage({to: 'offscreen', ...m}), msg)
+const status = pop => bgCall(pop, {type: 'status'})
+const chatOf = pop => status(pop).then(s => s.chat.filter(m => m.kind !== 'event').map(m => `${m.name}: ${m.text}`))
+const eventsOf = pop => status(pop).then(s => s.chat.filter(m => m.kind === 'event').map(m => m.text))
+const badgeOf = pop => pop.evaluate(() => chrome.action.getBadgeText({}))
+
+async function hasEvent(label, pop, match) {
+  return until(label, async () => {
+    const events = await eventsOf(pop)
+    return {ok: events.some(t => match.test(t)), info: events.slice(-4)}
+  })
+}
+
 async function main() {
   const A = await launch()
   const B = await launch()
@@ -93,6 +112,9 @@ async function main() {
   }, 90000)
 
   const popA = await extensionPage(A.browser)
+  const popB = await extensionPage(B.browser)
+  await bgCall(popA, {type: 'setName', name: 'alice'})
+  await bgCall(popB, {type: 'setName', name: 'bob'})
   const invite = await popA.evaluate(async site => {
     const [tab] = await chrome.tabs.query({url: `https://${site}/*`})
     const roomId = 'e2e' + Math.random().toString(16).slice(2)
@@ -103,46 +125,139 @@ async function main() {
     return `https://${site}/watch?v=${s.state.v}#jukebot=${s.roomId}`
   }, SITE)
   console.log('invite', invite)
-  await popA.evaluate(() => chrome.runtime.sendMessage({to: 'offscreen', type: 'say', by: 'alice-id', name: 'alice', text: 'said before B joined'}))
+  await hasEvent('start event', popA, /^alice started the room with .+/)
+  await offCall(popA, {type: 'say', text: 'said before B joined'})
 
   // B opens the invite on a different video position; it should land on A's.
-  await B.page.goto(invite)
-  await inSync('B joins and matches A', A.page, B.page, pa => !pa.paused && pa.v === LONG)
+  // Player tabs go to the front: Chrome defers media in background tabs.
+  const inviteB = invite.replace(`https://${SITE}/`, `https://${SITE_B}/`)
+  await B.page.bringToFront()
+  await B.page.goto(inviteB)
+  await A.page.bringToFront()
+  await inSync('B joins and matches A', A.page, B.page, (pa, pb) => !pa.paused && pa.v === LONG && pb.host === SITE_B)
 
-  const popB = await extensionPage(B.browser)
-  const chatOf = pop => pop.evaluate(() => chrome.runtime.sendMessage({to: 'bg', type: 'status'}).then(s => s.chat.map(m => `${m.by}/${m.name}: ${m.text}`)))
+  await until('names exchanged', async () => {
+    const [a, b] = await Promise.all([status(popA), status(popB)])
+    const names = s => s.members.map(m => m.name).sort().join()
+    return {ok: names(a) === 'alice,bob' && names(b) === 'alice,bob', info: [names(a), names(b)]}
+  })
+  await hasEvent('A sees bob joined', popA, /^bob joined$/)
+
   await until('B gets chat history from before it joined', async () => {
     const chat = await chatOf(popB)
-    return {ok: chat.includes('alice-id/alice: said before B joined'), info: chat}
+    return {ok: chat.includes('alice: said before B joined'), info: chat}
   })
-  await popB.evaluate(() => chrome.runtime.sendMessage({to: 'offscreen', type: 'say', by: 'bob-id', name: 'bob', text: 'hi <b>alice</b>'}))
+  await hasEvent('B gets activity history from before it joined', popB, /^alice started the room with/)
+
+  await offCall(popB, {type: 'say', text: 'hi <b>alice</b>\nsecond line'})
   await until('A gets B chat message', async () => {
     const chat = await chatOf(popA)
-    return {ok: chat.join('|') === 'alice-id/alice: said before B joined|bob-id/bob: hi <b>alice</b>', info: chat}
+    return {ok: chat.join('|') === 'alice: said before B joined|bob: hi <b>alice</b>\nsecond line', info: chat}
   })
+  await until('A badge shows 1 unread', async () => {
+    const text = await badgeOf(popA)
+    return {ok: text === '1', info: text}
+  })
+  await popA.evaluate(() => { window.port = chrome.runtime.connect({name: 'sidepanel'}) })
+  await until('A badge resets to the listener count when the side panel opens', async () => {
+    const text = await badgeOf(popA)
+    return {ok: text === '2', info: text}
+  })
+  await popA.evaluate(() => window.port.disconnect())
+
+  await offCall(popB, {type: 'typing'})
+  await until('A sees bob typing', async () => {
+    const s = await status(popA)
+    return {ok: s.typing.some(t => t.name === 'bob'), info: s.typing}
+  })
+
+  await A.page.evaluate(() => (document.querySelector('video.html5-main-video') || document.querySelector('video')).pause())
+  await inSync('A pauses, B pauses', A.page, B.page, pa => pa.paused)
+  await hasEvent('B sees alice paused', popB, /^alice paused$/)
+
+  await B.page.evaluate(() => { const v = document.querySelector('video.html5-main-video') || document.querySelector('video'); v.currentTime = 200; v.play() })
+  await inSync('B seeks to 200 and plays, A follows', A.page, B.page, pa => !pa.paused && pa.t > 195)
+  await hasEvent('A sees bob resumed', popA, /^bob resumed$/)
+
+  // The same path the right-click menu and the side panel's link box use.
+  const added = await bgCall(popB, {type: 'add', url: `https://youtu.be/${NEXT}`})
+  if (!added?.ok) throw new Error(`FAIL add: ${JSON.stringify(added)}`)
+  const item = (await until('queue add resolves a real title', async () => {
+    const q = (await status(popA)).state?.queue ?? []
+    return {ok: q.length === 1 && q[0].id === NEXT && q[0].title && q[0].title !== NEXT && q[0].name === 'bob', info: q}
+  })).info[0]
+  console.log(`info duration ${item.duration ?? 'unknown'}`)
+  await hasEvent('A sees bob added it', popA, /^bob added .+/)
+
   if (process.env.SHOT) {
-    await popA.goto(popA.url().replace('popup.html', 'sidepanel.html'))
-    await popA.setViewport({width: 360, height: 420})
-    await new Promise(r => setTimeout(r, 500))
-    await popA.screenshot({path: process.env.SHOT})
-    await popA.goto(popA.url().replace('sidepanel.html', 'popup.html'))
+    const panel = await A.browser.newPage()
+    await panel.setViewport({width: 360, height: 640})
+    await panel.goto(popA.url().replace('popup.html', 'sidepanel.html'))
+    await offCall(popB, {type: 'typing'})
+    await panel.evaluate(() => {
+      const box = document.getElementById('text')
+      box.value = 'a draft that wraps onto\nseveral lines\nso the box grows'
+      box.dispatchEvent(new Event('input'))
+    })
+    await new Promise(r => setTimeout(r, 1200))
+    await panel.screenshot({path: process.env.SHOT})
+    await popA.setViewport({width: 340, height: 520})
+    await popA.reload()
+    await new Promise(r => setTimeout(r, 800))
+    await popA.screenshot({path: process.env.SHOT.replace(/\.png$/, '-popup.png')})
+    await panel.close()
   }
 
-  await A.page.evaluate(() => document.querySelector('video').pause())
-  await inSync('A pauses, B pauses', A.page, B.page, pa => pa.paused)
+  await offCall(popA, {type: 'skip'})
+  await inSync('skip moves both to the queued video', A.page, B.page, pa => pa.v === NEXT && !pa.paused)
+  await hasEvent('B sees alice skipped', popB, /^alice skipped to .+/)
 
-  await B.page.evaluate(() => { const v = document.querySelector('video'); v.currentTime = 200; v.play() })
-  await inSync('B seeks to 200 and plays, A follows', A.page, B.page, pa => !pa.paused && pa.t > 195)
-
-  await popB.evaluate(id => chrome.runtime.sendMessage({to: 'offscreen', type: 'update', patch: {queue: [{id, title: 'next'}]}}), NEXT)
+  await bgCall(popB, {type: 'add', url: `https://${SITE}/watch?v=${LONG}`})
+  await until('second queue add lands', async () => {
+    const q = (await status(popA)).state?.queue ?? []
+    return {ok: q.length === 1 && q[0].id === LONG, info: q}
+  })
 
   await A.page.goto(`https://${SITE}/watch?v=${SHORT}`)
   await inSync('A picks another video, B follows', A.page, B.page, pa => pa.v === SHORT && !pa.paused)
+  await hasEvent('B sees alice started it', popB, /^alice started .+/)
 
-  await inSync('video ends, room advances to the shared queue', A.page, B.page, pa => pa.v === NEXT && !pa.paused)
-  const queue = await popA.evaluate(() => chrome.runtime.sendMessage({to: 'bg', type: 'status'}).then(s => s.state.queue))
+  await inSync('video ends, room advances to the shared queue', A.page, B.page, pa => pa.v === LONG && !pa.paused)
+  const queue = (await status(popA)).state.queue
   if (queue.length) throw new Error(`FAIL queue not consumed: ${JSON.stringify(queue)}`)
   console.log('ok   queue consumed')
+  await hasEvent('now playing line', popA, /^Now playing .+/)
+
+  // Self detection rides on the profile's userId, so B's earlier message is
+  // still B's after B leaves and rejoins, and after B's page reloads.
+  const ownMessage = async () => {
+    const panel = await B.browser.newPage()
+    await panel.goto(popB.url().replace('popup.html', 'sidepanel.html'))
+    const r = await until('B side panel marks its own earlier message as own', () => panel.evaluate(() => {
+      const own = [...document.querySelectorAll('.msg.self')].map(m => m.textContent)
+      return {ok: own.some(t => t.includes('bob (you)') && t.includes('hi <b>alice</b>')), info: own}
+    }))
+    await panel.close()
+    await B.page.bringToFront()
+    return r
+  }
+  await bgCall(popB, {type: 'leave'})
+  await hasEvent('A sees bob left after B leaves', popA, /^bob left$/)
+  await B.page.goto(inviteB)
+  await until('B rejoins and gets history', async () => {
+    const chat = await chatOf(popB)
+    return {ok: chat.includes('bob: hi <b>alice</b>\nsecond line'), info: chat}
+  })
+  await ownMessage()
+  await B.page.reload()
+  await inSync('B reloads and stays in sync', A.page, B.page, pa => !pa.paused)
+  await ownMessage()
+
+  await bgCall(popB, {type: 'leave'})
+  await until('A shows bob joined then left', async () => {
+    const events = await eventsOf(popA)
+    return {ok: events.filter(t => t === 'bob joined').length >= 2 && events.filter(t => t === 'bob left').length >= 2, info: events.slice(-4)}
+  })
   console.log('PASS')
 }
 

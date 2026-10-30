@@ -53,25 +53,24 @@ async function render() {
     num.style.flex = '0 0 auto'
     const name = document.createElement('span')
     name.textContent = item.title || item.id
-    name.title = item.title || item.id
+    name.title = item.name ? `${item.title || item.id} (added by ${item.name})` : item.title || item.id
     const x = document.createElement('button')
     x.className = 'x'
     x.textContent = 'remove'
-    x.onclick = () => setQueue(queue.filter((_, j) => j !== i))
-    li.append(num, name, x)
+    x.onclick = () => chrome.runtime.sendMessage({to: 'offscreen', type: 'remove', qid: item.qid})
+    li.append(num, name)
+    if (item.name) li.append(Object.assign(document.createElement('span'), {className: 'by', textContent: item.name}))
+    li.append(x)
     return li
   }))
   $('queue-empty').hidden = queue.length > 0
   $('add').hidden = !state || !watchVid(tab?.url)
+  $('skip').disabled = queue.length === 0
 }
 
 async function refresh() {
   status = await bg({type: 'status'})
   await render()
-}
-
-function setQueue(queue) {
-  chrome.runtime.sendMessage({to: 'offscreen', type: 'update', patch: {queue}})
 }
 
 $('start').onclick = async () => {
@@ -104,10 +103,11 @@ $('copy').onclick = async () => {
 }
 
 $('add').onclick = async () => {
-  const snap = await chrome.tabs.sendMessage(tab.id, {type: 'snapshot'}).catch(() => null)
-  if (!snap?.v) return showError('Could not read the video in this tab.')
-  setQueue([...(status.state?.queue ?? []), {id: snap.v, title: snap.title}])
+  const r = await bg({type: 'add', url: tab.url})
+  showError(r?.error ?? '')
 }
+
+$('skip').onclick = () => chrome.runtime.sendMessage({to: 'offscreen', type: 'skip'})
 
 $('chat').onclick = async () => {
   await chrome.sidePanel.open({windowId: tab.windowId})

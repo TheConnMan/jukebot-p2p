@@ -32,9 +32,10 @@
     if (resetKnown || !sessionStorage.getItem(KNOWN)) sessionStorage.setItem(KNOWN, currentVid() ?? '')
   }
 
-  function publish(patch) {
+  // `reason` labels a video change for the activity log: start, pick, advance.
+  function publish(patch, reason) {
     state = {...state, ...patch, at: Date.now()}
-    send({to: 'offscreen', type: 'update', patch})
+    send({to: 'offscreen', type: 'update', patch, reason})
   }
 
   function navigate(v, t) {
@@ -45,7 +46,7 @@
 
   function onEnded() {
     const [next, ...rest] = state.queue ?? []
-    if (next) publish({v: next.id, pos: 0, playing: true, queue: rest})
+    if (next) publish({v: next.id, title: next.title, duration: next.duration, pos: 0, playing: true, queue: rest}, 'advance')
   }
 
   function onMedia(e) {
@@ -78,7 +79,7 @@
         // The local user picked another video: the room follows.
         sessionStorage.setItem(KNOWN, vid)
         const el = video()
-        publish({v: vid, pos: el?.currentTime ?? 0, playing: true})
+        publish({v: vid, pos: el?.currentTime ?? 0, playing: true}, 'pick')
       } else if (Date.now() - navAt > 5000) {
         navigate(state.v, expected(state))
       }
@@ -103,6 +104,8 @@
     if (ok) aligned = true
   }
 
+  // Runs at document_start: YouTube Music rewrites the URL and drops the
+  // invite's #jukebot= hash before the page settles.
   function joinFromHash() {
     const id = new URLSearchParams(location.hash.slice(1)).get('jukebot')
     if (!id) return
@@ -127,7 +130,7 @@
       // This tab just created the room: its current video seeds the state.
       enter(true)
       const s = snapshot()
-      publish({v: s.v, pos: s.pos, playing: s.playing, queue: []})
+      publish({v: s.v, title: s.title, duration: video()?.duration || null, pos: s.pos, playing: s.playing, queue: []}, 'start')
       aligned = true
     } else if (msg.type === 'snapshot') {
       reply(snapshot())
