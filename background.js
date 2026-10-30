@@ -32,6 +32,7 @@ async function leave() {
   await toOffscreen({type: 'leave'})
   await chrome.offscreen.closeDocument()
   chrome.action.setBadgeText({text: ''})
+  chrome.runtime.sendMessage({to: 'chat', type: 'chat'}).catch(() => {})
   if (s.tabId != null) chrome.tabs.sendMessage(s.tabId, {type: 'left'}).catch(() => {})
 }
 

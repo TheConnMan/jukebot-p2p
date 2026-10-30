@@ -7,6 +7,7 @@ Listen to YouTube or YouTube Music in sync with friends, browser to browser. A s
 1. Open a video on youtube.com or music.youtube.com, click the extension, and choose Start a room here.
 2. Copy the invite link and send it to a friend who has the extension. Opening the link joins the room.
 3. Play, pause, seek or pick another video in either browser and everyone follows. Add videos to the shared Up next queue from the popup; when a video ends the room plays the next one, or follows the site's own autoplay if the queue is empty.
+4. Choose Open chat in the popup to chat with the room in Chrome's side panel. Set your name at the top of the panel.
 
 ## How it works
 
@@ -18,6 +19,6 @@ Two browsers behind strict (symmetric) NATs may fail to connect directly; that w
 
 ## Test
 
-`npm install`, then `npm run test:e2e` starts two separate Chrome profiles against real YouTube and checks join, pause, seek, video change and queue advance. Set `CHROME` to the Chrome binary and `SITE=music.youtube.com` to run it against YouTube Music.
+`npm install`, then `npm run test:e2e` starts two separate Chrome profiles against real YouTube and checks join, chat, pause, seek, video change and queue advance. Set `CHROME` to the Chrome binary and `SITE=music.youtube.com` to run it against YouTube Music.
 
 `scripts/vendor-trystero.sh` rebuilds `vendor/trystero.js`.

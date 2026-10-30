@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0a0a0b; --panel:#101012;
+    --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.06);
+    --fg:#e9e7e2; --dim:rgba(233,231,226,.66); --dim2:rgba(233,231,226,.54);
+    --acc:oklch(0.80 0.14 78); --acc2:oklch(0.86 0.11 78);
+    --ok:oklch(0.78 0.13 155);
+    --mono:'Geist Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font:13px/1.5 var(--mono)}
+  header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
+  .brand{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim)}
+  .pill{font-size:10px;text-transform:uppercase;letter-spacing:.08em;display:flex;align-items:center;gap:6px;color:var(--dim2)}
+  .pill::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+  .pill.live{color:var(--acc)} .pill.ok{color:var(--ok)}
+  .me{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line2);font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim2)}
+  #log{flex:1;overflow-y:auto;padding:8px 12px}
+  .msg{padding:4px 0;border-bottom:1px solid var(--line2);overflow-wrap:anywhere}
+  .who{color:var(--acc2)} .who.self{color:var(--ok)}
+  .ts{color:var(--dim2);font-size:11px;font-variant-numeric:tabular-nums;margin-left:6px}
+  .empty{color:var(--dim)}
+  form{display:flex;gap:6px;padding:10px 12px;border-top:1px solid var(--line)}
+  input{min-width:0;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:2px;padding:6px 8px;font:12px var(--mono)}
+  #text{flex:1}
+  #name{flex:1;text-transform:none;letter-spacing:0}
+  button{background:transparent;color:var(--acc);border:1px solid var(--acc);border-radius:2px;padding:6px 10px;font:12px var(--mono);cursor:pointer}
+  button:disabled{color:var(--dim2);border-color:var(--line);cursor:default}
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">JukeBot chat</span>
+  <span id="pill" class="pill">no room</span>
+</header>
+<label class="me">Name <input id="name" maxlength="40"></label>
+<div id="log"></div>
+<form id="form">
+  <input id="text" maxlength="1000" placeholder="Say something" autocomplete="off">
+  <button id="send">Send</button>
+</form>
+<script src="sidepanel.js"></script>
+</body>
+</html>

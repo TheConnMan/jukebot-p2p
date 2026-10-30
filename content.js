@@ -5,12 +5,13 @@
 (() => {
   const TOLERANCE = 2 // seconds of drift allowed before seeking
   const KNOWN = 'jukebot.knownVid' // last video this tab agreed on with the room; survives reloads
-  const AUTOPLAY_WINDOW = 5000 // after an end, ignore the site's own autoplay for this long
+  const AUTOPLAY_WINDOW = 10000 // after an end the room moved on from, ignore the site's own autoplay for this long
 
   let inRoom = false
   let state = null // room state, with `at` on this machine's clock
   let aligned = false // local player has matched the room since the last video change
   let lastEnded = 0
+  let endedVid = null
   let navAt = 0
 
   const video = () => document.querySelector('video.html5-main-video') || document.querySelector('video')
@@ -43,12 +44,17 @@
   }
 
   function onEnded() {
-    lastEnded = Date.now()
     const [next, ...rest] = state.queue ?? []
     if (next) publish({v: next.id, pos: 0, playing: true, queue: rest})
   }
 
   function onMedia(e) {
+    if (inRoom && e.type === 'ended') {
+      // Recorded even when the room already advanced past this video, so the
+      // site's autoplay that follows is not mistaken for the user's pick.
+      lastEnded = Date.now()
+      endedVid = currentVid()
+    }
     if (!inRoom || !state || !aligned || adShowing()) return
     const el = e.target
     if (el !== video() || currentVid() !== state.v) return
@@ -67,7 +73,8 @@
     if (vid !== state.v) {
       aligned = false
       const known = sessionStorage.getItem(KNOWN)
-      if (vid && vid !== known && Date.now() - lastEnded > AUTOPLAY_WINDOW) {
+      const autoplay = Date.now() - lastEnded < AUTOPLAY_WINDOW && state.v !== endedVid
+      if (vid && vid !== known && !autoplay) {
         // The local user picked another video: the room follows.
         sessionStorage.setItem(KNOWN, vid)
         const el = video()

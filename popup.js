@@ -109,6 +109,11 @@ $('add').onclick = async () => {
   setQueue([...(status.state?.queue ?? []), {id: snap.v, title: snap.title}])
 }
 
+$('chat').onclick = async () => {
+  await chrome.sidePanel.open({windowId: tab.windowId})
+  window.close()
+}
+
 $('leave').onclick = async () => {
   await bg({type: 'leave'})
   await refresh()

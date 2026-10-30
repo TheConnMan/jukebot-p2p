@@ -103,10 +103,30 @@ async function main() {
     return `https://${site}/watch?v=${s.state.v}#jukebot=${s.roomId}`
   }, SITE)
   console.log('invite', invite)
+  await popA.evaluate(() => chrome.runtime.sendMessage({to: 'offscreen', type: 'say', name: 'alice', text: 'said before B joined'}))
 
   // B opens the invite on a different video position; it should land on A's.
   await B.page.goto(invite)
   await inSync('B joins and matches A', A.page, B.page, pa => !pa.paused && pa.v === LONG)
+
+  const popB = await extensionPage(B.browser)
+  const chatOf = pop => pop.evaluate(() => chrome.runtime.sendMessage({to: 'bg', type: 'status'}).then(s => s.chat.map(m => `${m.name}: ${m.text}`)))
+  await until('B gets chat history from before it joined', async () => {
+    const chat = await chatOf(popB)
+    return {ok: chat.includes('alice: said before B joined'), info: chat}
+  })
+  await popB.evaluate(() => chrome.runtime.sendMessage({to: 'offscreen', type: 'say', name: 'bob', text: 'hi <b>alice</b>'}))
+  await until('A gets B chat message', async () => {
+    const chat = await chatOf(popA)
+    return {ok: chat.join('|') === 'alice: said before B joined|bob: hi <b>alice</b>', info: chat}
+  })
+  if (process.env.SHOT) {
+    await popA.goto(popA.url().replace('popup.html', 'sidepanel.html'))
+    await popA.setViewport({width: 360, height: 420})
+    await new Promise(r => setTimeout(r, 500))
+    await popA.screenshot({path: process.env.SHOT})
+    await popA.goto(popA.url().replace('sidepanel.html', 'popup.html'))
+  }
 
   await A.page.evaluate(() => document.querySelector('video').pause())
   await inSync('A pauses, B pauses', A.page, B.page, pa => pa.paused)
@@ -114,7 +134,6 @@ async function main() {
   await B.page.evaluate(() => { const v = document.querySelector('video'); v.currentTime = 200; v.play() })
   await inSync('B seeks to 200 and plays, A follows', A.page, B.page, pa => !pa.paused && pa.t > 195)
 
-  const popB = await extensionPage(B.browser)
   await popB.evaluate(id => chrome.runtime.sendMessage({to: 'offscreen', type: 'update', patch: {queue: [{id, title: 'next'}]}}), NEXT)
 
   await A.page.goto(`https://${SITE}/watch?v=${SHORT}`)

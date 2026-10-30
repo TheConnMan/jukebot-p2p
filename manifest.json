@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "JukeBot P2P",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Listen to YouTube and YouTube Music in sync with friends, browser to browser.",
-  "permissions": ["offscreen"],
+  "permissions": ["offscreen", "sidePanel", "storage"],
   "host_permissions": ["https://www.youtube.com/*", "https://music.youtube.com/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "content_scripts": [
@@ -13,6 +13,7 @@
       "run_at": "document_idle"
     }
   ],
+  "side_panel": { "default_path": "sidepanel.html" },
   "action": {
     "default_title": "JukeBot P2P",
     "default_popup": "popup.html",
