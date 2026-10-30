@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+
+Opening an invite when nobody else is in the room now starts the room from that tab after a short wait. The video in the link, the current position and whether it is playing become the room. If someone with a newer room shows up, that room wins.
+
 ## 0.3.2
 
 Removed the left bar and tint on your own chat messages; "(you)" after your name still marks them.

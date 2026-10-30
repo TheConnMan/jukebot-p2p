@@ -256,7 +256,7 @@ async function main() {
     const panel = await B.browser.newPage()
     await panel.goto(popB.url().replace('popup.html', 'sidepanel.html'))
     const r = await until('B side panel marks its own earlier message as own', () => panel.evaluate(() => {
-      const own = [...document.querySelectorAll('.msg.self')].map(m => m.textContent)
+      const own = [...document.querySelectorAll('.msg:not(.event)')].map(m => m.textContent)
       return {ok: own.some(t => t.includes('bob (you)') && t.includes('hi <b>alice</b>')), info: own}
     }))
     await panel.close()
@@ -306,6 +306,43 @@ async function main() {
     const events = await eventsOf(popA)
     return {ok: events.filter(t => t === 'bob joined').length >= 2 && events.filter(t => t === 'bob left').length >= 2, info: events.slice(-4)}
   })
+
+  // A starts a room and leaves. B is alone with the invite and must seed it.
+  // A then rejoins from a different video and must follow B, not its own tab.
+  await bgCall(popA, {type: 'leave'})
+  await A.page.goto(`https://${SITE}/watch?v=${LONG}`)
+  await until('A video plays again', async () => {
+    const p = await player(A.page)
+    return {ok: p.v === LONG && p.t > 1 && !p.ad, info: p}
+  }, 90000)
+  const inviteAlone = await popA.evaluate(async site => {
+    const [tab] = await chrome.tabs.query({url: `https://${site}/*`})
+    const roomId = 'e2ealone' + Math.random().toString(16).slice(2)
+    await chrome.runtime.sendMessage({to: 'bg', type: 'join', roomId, tabId: tab.id})
+    await chrome.tabs.sendMessage(tab.id, {type: 'start'})
+    await new Promise(r => setTimeout(r, 300))
+    const s = await chrome.runtime.sendMessage({to: 'bg', type: 'status'})
+    return `https://${site}/watch?v=${s.state.v}#jukebot=${s.roomId}`
+  }, SITE)
+  const aloneVid = new URL(inviteAlone).searchParams.get('v')
+  await bgCall(popA, {type: 'leave'})
+  await A.page.goto(`https://${SITE}/watch?v=${SHORT}`)
+  const inviteAloneB = inviteAlone.replace(`https://${SITE}/`, `https://${SITE_B}/`)
+  await B.page.bringToFront()
+  await B.page.goto(inviteAloneB)
+  await until('B alone seeds the invite', async () => {
+    const [s, p] = await Promise.all([status(popB), player(B.page)])
+    return {ok: s.state?.v === aloneVid && s.peers === 0 && p.v === aloneVid && p.paused === false, info: {state: s.state && {v: s.state.v, rev: s.state.rev, peers: s.peers}, p}}
+  }, 20000)
+  await A.page.bringToFront()
+  await A.page.goto(inviteAlone)
+  await inSync('A rejoins the seeded room on B\'s video', A.page, B.page, (pa, pb) => pa.v === aloneVid && pb.v === aloneVid && pa.v !== SHORT)
+  const [seedA, seedB] = await Promise.all([status(popA), status(popB)])
+  if (seedA.state?.v !== aloneVid || seedB.state?.v !== aloneVid) {
+    throw new Error(`FAIL rejoin reset the room: ${JSON.stringify({a: seedA.state?.v, b: seedB.state?.v})}`)
+  }
+  console.log('ok   rejoin keeps the seeded video')
+
   console.log('PASS')
 }
 

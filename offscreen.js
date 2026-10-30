@@ -332,9 +332,13 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       reply({inRoom: room != null && fromTab === tabId, state})
       break
     case 'update':
-      // From the room's tab, or from an extension page.
-      if (room && (fromTab === tabId || fromExtension)) update(msg.patch, msg.reason)
-      reply(true)
+      // From the room's tab, or from an extension page. A start seed never
+      // replaces state that already arrived: a later higher rev still wins
+      // through the normal path, and an earlier copy is left as it is.
+      if (room && (fromTab === tabId || fromExtension) && !(msg.reason === 'start' && state)) {
+        update(msg.patch, msg.reason)
+        reply(true)
+      } else reply(false)
       break
     default:
       return false

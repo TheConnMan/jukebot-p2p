@@ -6,6 +6,7 @@
   const TOLERANCE = 2 // seconds of drift allowed before seeking
   const KNOWN = 'jukebot.knownVid' // last video this tab agreed on with the room; survives reloads
   const AUTOPLAY_WINDOW = 10000 // after an end the room moved on from, ignore the site's own autoplay for this long
+  const SEED_AFTER = 8000 // no peer state by then: this tab is the room
 
   let inRoom = false
   let state = null // room state, with `at` on this machine's clock
@@ -13,6 +14,7 @@
   let lastEnded = 0
   let endedVid = null
   let navAt = 0
+  let seedTimer = null
 
   const video = () => document.querySelector('video.html5-main-video') || document.querySelector('video')
   const currentVid = () => new URL(location.href).searchParams.get('v')
@@ -36,6 +38,33 @@
   function publish(patch, reason) {
     state = {...state, ...patch, at: Date.now()}
     send({to: 'offscreen', type: 'update', patch, reason})
+  }
+
+  // Same patch "Start a room" publishes. `v` is the watch URL, which on an
+  // invite is the video the link carries.
+  function initialPatch() {
+    const s = snapshot()
+    return {v: s.v, title: s.title, duration: video()?.duration || null, pos: s.pos, playing: s.playing, queue: []}
+  }
+
+  function armSeed() {
+    clearTimeout(seedTimer)
+    seedTimer = setTimeout(seedIfAlone, SEED_AFTER)
+  }
+
+  // Nobody sent room state. Publish the start patch, but keep the local player
+  // on whatever arrived in the meantime: a higher rev from a peer wins.
+  function seedIfAlone() {
+    seedTimer = null
+    if (!inRoom || state?.v) return
+    const patch = initialPatch()
+    if (!patch.v) return
+    send({to: 'offscreen', type: 'update', patch, reason: 'start'}).then(ok => {
+      if (ok !== true || state?.v) return
+      state = {...patch, at: Date.now()}
+      sessionStorage.setItem(KNOWN, patch.v)
+      aligned = true
+    })
   }
 
   function navigate(v, t) {
@@ -114,23 +143,28 @@
     sessionStorage.setItem(KNOWN, currentVid() ?? '')
     history.replaceState(history.state, '', location.href.split('#')[0])
     send({to: 'bg', type: 'join', roomId: id}).then(r => {
-      if (r && !r.error) enter(false)
+      if (!r || r.error) return
+      enter(false)
+      if (r.state?.v) state = r.state
+      else armSeed()
     })
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     if (msg.type === 'state') {
       if (!inRoom) enter(false)
+      if (msg.state?.v) clearTimeout(seedTimer)
       if (msg.state?.v !== state?.v) aligned = false
       state = msg.state
     } else if (msg.type === 'left') {
+      clearTimeout(seedTimer)
       inRoom = false
       state = null
     } else if (msg.type === 'start') {
       // This tab just created the room: its current video seeds the state.
+      clearTimeout(seedTimer)
       enter(true)
-      const s = snapshot()
-      publish({v: s.v, title: s.title, duration: video()?.duration || null, pos: s.pos, playing: s.playing, queue: []}, 'start')
+      publish(initialPatch(), 'start')
       aligned = true
     } else if (msg.type === 'snapshot') {
       reply(snapshot())
