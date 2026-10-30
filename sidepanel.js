@@ -57,7 +57,6 @@ function renderLog(chat, inRoom) {
       const div = el('div', 'msg event')
       if (m.name && m.text.startsWith(`${m.name} `)) div.append(person(m.name, m.by), m.text.slice(m.name.length))
       else div.append(m.text)
-      div.append(el('span', 'ts', time(m.ts)))
       return div
     }
     const div = el('div', `msg ${hue(m.by)}${m.by === userId ? ' self' : ''}`)

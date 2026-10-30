@@ -104,17 +104,17 @@
     if (ok) aligned = true
   }
 
-  // Runs at document_start: YouTube Music rewrites the URL and drops the
-  // invite's #jukebot= hash before the page settles.
+  // Runs at document_start, before the first tick: YouTube Music rewrites the
+  // URL and drops the invite's #jukebot= hash before the page settles. The
+  // video in an invite link is whatever played when it was copied, never the
+  // user's pick, so it is marked known and the room's current video wins.
   function joinFromHash() {
     const id = new URLSearchParams(location.hash.slice(1)).get('jukebot')
     if (!id) return
+    sessionStorage.setItem(KNOWN, currentVid() ?? '')
     history.replaceState(history.state, '', location.href.split('#')[0])
     send({to: 'bg', type: 'join', roomId: id}).then(r => {
-      if (r && !r.error) {
-        state = null
-        enter(true)
-      }
+      if (r && !r.error) enter(false)
     })
   }
 
@@ -140,13 +140,13 @@
 
   for (const type of ['play', 'pause', 'seeked', 'ended']) document.addEventListener(type, onMedia, true)
   window.addEventListener('hashchange', joinFromHash)
+  joinFromHash()
   setInterval(tick, 500)
 
   send({to: 'offscreen', type: 'hello'}).then(r => {
     if (r?.inRoom) {
       enter(false)
-      state = r.state
+      state ??= r.state
     }
-    joinFromHash()
   })
 })()

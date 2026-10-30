@@ -47,7 +47,10 @@ async function status() {
 
 async function join(roomId, tabId) {
   await ensureOffscreen()
-  await chrome.storage.session.set({unread: 0})
+  const before = await status()
+  if (before?.roomId !== roomId) await chrome.storage.session.set({unread: 0})
+  // Only one tab plays for the room; the one it moves away from stops syncing.
+  if (before?.tabId != null && before.tabId !== tabId) chrome.tabs.sendMessage(before.tabId, {type: 'left'}).catch(() => {})
   return toOffscreen({type: 'join', roomId, tabId, profile: await profile()})
 }
 
@@ -96,10 +99,10 @@ async function incoming(messages) {
   if (chats.length) await chrome.storage.session.set({unread: unread + chats.length})
   await badge()
   const {notifyChat = true, notifySongs = true, notifyPeople = true} = await chrome.storage.local.get(['notifyChat', 'notifySongs', 'notifyPeople'])
-  const show = (title, message) => chrome.notifications.create({type: 'basic', iconUrl: 'icon128.png', title, message}).catch(() => {})
-  if (notifyChat) for (const m of chats) show(m.name || 'someone', m.text)
-  if (notifySongs) for (const m of songs) show('JukeBot', m.text)
-  if (notifyPeople) for (const m of people) show('JukeBot', m.text)
+  const show = (m, title) => chrome.notifications.create(`m-${m.id}`, {type: 'basic', iconUrl: 'icon128.png', title, message: m.text}).catch(() => {})
+  if (notifyChat) for (const m of chats) show(m, m.name || 'someone')
+  if (notifySongs) for (const m of songs) show(m, 'JukeBot')
+  if (notifyPeople) for (const m of people) show(m, 'JukeBot')
 }
 
 async function markRead() {

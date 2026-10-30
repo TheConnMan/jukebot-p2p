@@ -148,6 +148,23 @@ async function main() {
     return {ok: chat.includes('alice: said before B joined'), info: chat}
   })
   await hasEvent('B gets activity history from before it joined', popB, /^alice started the room with/)
+  // Backfilled history is quiet: no unread count and no notifications for it.
+  const backfill = (await status(popB)).chat.filter(m => !m.local).map(m => m.id)
+  await until('backfill stays silent on B', async () => {
+    const [badge, shown] = await Promise.all([badgeOf(popB), popB.evaluate(() => chrome.notifications.getAll())])
+    const loud = backfill.filter(id => `m-${id}` in shown)
+    return {ok: badge === '2' && loud.length === 0, info: {badge, loud}}
+  })
+  {
+    const panel = await B.browser.newPage()
+    await panel.goto(popB.url().replace('popup.html', 'sidepanel.html'))
+    await until('backfilled event renders as an event line on B', () => panel.evaluate(() => {
+      const lines = [...document.querySelectorAll('.msg.event')].map(m => m.textContent)
+      return {ok: lines.some(t => t.startsWith('alice started the room with')) && !document.querySelector('.msg.event .ts'), info: lines}
+    }))
+    await panel.close()
+    await B.page.bringToFront()
+  }
 
   await offCall(popB, {type: 'say', text: 'hi <b>alice</b>\nsecond line'})
   await until('A gets B chat message', async () => {
@@ -208,9 +225,14 @@ async function main() {
     await panel.close()
   }
 
+  const beforeSkip = (await eventsOf(popB)).length
   await offCall(popA, {type: 'skip'})
   await inSync('skip moves both to the queued video', A.page, B.page, pa => pa.v === NEXT && !pa.paused)
   await hasEvent('B sees alice skipped', popB, /^alice skipped to .+/)
+  await new Promise(r => setTimeout(r, 3000))
+  const afterSkip = (await eventsOf(popB)).slice(beforeSkip)
+  if (afterSkip.length !== 1) throw new Error(`FAIL skip should log exactly one line: ${JSON.stringify(afterSkip)}`)
+  console.log('ok   skip logs exactly one line')
 
   await bgCall(popB, {type: 'add', url: `https://${SITE}/watch?v=${LONG}`})
   await until('second queue add lands', async () => {
@@ -241,6 +263,18 @@ async function main() {
     await B.page.bringToFront()
     return r
   }
+
+  // Move the room off the invite's video, then reopen that old invite three
+  // ways. The link's video must never be taken as B's pick.
+  await A.page.goto(`https://${SITE}/watch?v=${NEXT}`)
+  await inSync('room moves off the invite video', A.page, B.page, pa => pa.v === NEXT && !pa.paused)
+  const mark = (await eventsOf(popA)).length
+  const onRoomVideo = label => inSync(label, A.page, B.page, (pa, pb) => pa.v === NEXT && pb.v === NEXT && !pa.paused)
+
+  await B.page.goto(inviteB)
+  await new Promise(r => setTimeout(r, 4000))
+  await onRoomVideo('old invite in the room tab keeps the room on its video')
+
   await bgCall(popB, {type: 'leave'})
   await hasEvent('A sees bob left after B leaves', popA, /^bob left$/)
   await B.page.goto(inviteB)
@@ -248,9 +282,23 @@ async function main() {
     const chat = await chatOf(popB)
     return {ok: chat.includes('bob: hi <b>alice</b>\nsecond line'), info: chat}
   })
+  await onRoomVideo('old invite after leaving keeps the room on its video')
   await ownMessage()
+
+  const oldTab = B.page
+  B.page = await B.browser.newPage()
+  await B.page.goto(inviteB)
+  await new Promise(r => setTimeout(r, 4000))
+  await onRoomVideo('old invite in a new tab keeps the room on its video')
+  if ((await status(popB)).tabId === undefined) throw new Error('FAIL no room tab')
+  await oldTab.close()
+
+  const hijack = (await eventsOf(popA)).slice(mark).filter(t => /^bob started/.test(t))
+  if (hijack.length) throw new Error(`FAIL old invite changed the room: ${JSON.stringify(hijack)}`)
+  console.log('ok   no started line from old invites')
+
   await B.page.reload()
-  await inSync('B reloads and stays in sync', A.page, B.page, pa => !pa.paused)
+  await inSync('B reloads and stays in sync', A.page, B.page, pa => !pa.paused && pa.v === NEXT)
   await ownMessage()
 
   await bgCall(popB, {type: 'leave'})

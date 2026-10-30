@@ -25,6 +25,9 @@ const CHAT_HISTORY = 50
 const QUEUE_MAX = 100
 const TYPING_FOR = 4000
 const SEEK_SETTLE = 1500
+// Older versions send backfill on the live chat action as a peer connects;
+// anything in a peer's first seconds is treated as history, not news.
+const BACKFILL_WINDOW = 3000
 
 let room = null
 let actions = null
@@ -35,6 +38,7 @@ let chat = []
 let profile = {userId: '', name: ''}
 const members = new Map() // peerId -> {userId, name}
 const typing = new Map() // peerId -> last ping time
+const connectedAt = new Map() // peerId -> when the connection opened
 let seekTimer = null
 
 const position = s => s.pos + (s.playing ? (Date.now() - s.at) / 1000 : 0)
@@ -84,7 +88,9 @@ const nudge = type => chrome.runtime.sendMessage({to: 'chat', type}).catch(() =>
 function join(id, tab, who) {
   if (who) profile = who
   if (room && id === roomId) {
+    // Same room from another (or reloaded) tab: hand it the current state now.
     tabId = tab
+    push()
     return
   }
   leave()
@@ -104,7 +110,7 @@ function join(id, tab, who) {
   }
   actions.chat.onMessage = (msgs, {peerId}) => {
     typing.delete(peerId)
-    addChat(msgs, true)
+    addChat(msgs, Date.now() - (connectedAt.get(peerId) ?? 0) > BACKFILL_WINDOW)
   }
   actions.history.onMessage = msgs => addChat(msgs, false)
   actions.hello.onMessage = (data, {peerId}) => {
@@ -120,6 +126,7 @@ function join(id, tab, who) {
     nudge('typing')
   }
   room.onPeerJoin = peerId => {
+    connectedAt.set(peerId, Date.now())
     actions.hello.send(profile, {target: peerId})
     if (state) actions.state.send(wire(state), {target: peerId})
     const history = chat.filter(m => !m.local).slice(-CHAT_HISTORY)
@@ -139,6 +146,7 @@ function leave() {
   chat = []
   members.clear()
   typing.clear()
+  connectedAt.clear()
   clearTimeout(seekTimer)
 }
 
@@ -147,7 +155,13 @@ function addChat(msgs, live) {
   const seen = new Set(chat.map(m => m.id))
   const added = []
   for (const m of msgs.slice(0, CHAT_KEEP)) {
-    if (typeof m?.id !== 'string' || typeof m.text !== 'string' || seen.has(m.id)) continue
+    if (typeof m?.id !== 'string' || typeof m.text !== 'string') continue
+    if (seen.has(m.id)) {
+      // A copy relayed by an older version may have lost its event marking.
+      const had = chat.find(c => c.id === m.id)
+      if (m.kind === 'event' && had && !had.kind) Object.assign(had, {kind: 'event', tag: str(m.tag, 10)})
+      continue
+    }
     seen.add(m.id)
     const entry = {id: m.id.slice(0, 40), by: str(m.by, 40), name: str(m.name, 40), text: m.text.slice(0, 1000), ts: num(m.ts) ?? Date.now()}
     if (m.kind === 'event') Object.assign(entry, {kind: 'event', tag: str(m.tag, 10)})
