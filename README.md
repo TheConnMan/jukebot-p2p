@@ -2,6 +2,18 @@
 
 Listen to YouTube or YouTube Music in sync with friends, browser to browser. A spiritual successor to [JukeBot](https://github.com/TheConnMan/jukebot), without the server.
 
+## Install
+
+1. Download the zip from the latest [GitHub Release](https://github.com/TheConnMan/jukebot-p2p/releases/latest).
+2. Unzip it.
+3. Open chrome://extensions.
+4. Turn on Developer mode.
+5. Choose Load unpacked.
+6. Pick the unzipped folder.
+7. After you update, reload the extension card on chrome://extensions.
+
+To release a version, bump the version in manifest.json, add a CHANGELOG.md entry for it, and push a tag vX.Y.Z.
+
 ## Use
 
 1. Open a video on youtube.com or music.youtube.com, click the extension, and choose Start a room here.
