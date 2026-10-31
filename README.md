@@ -16,8 +16,8 @@ To release a version, bump the version in manifest.json, add a CHANGELOG.md entr
 
 ## Use
 
-1. Open a video on youtube.com or music.youtube.com, click the extension, and choose Start a room here.
-2. Copy the invite link and send it to a friend who has the extension. Opening the link joins the room.
+1. Open a video on youtube.com or music.youtube.com, click the extension, and choose Start a room here. A room name is optional. If you type one, the room code starts with that name (lower case, with spaces turned into hyphens) and ends with random characters so other people cannot guess it. Leave the name blank for a fully random code.
+2. Copy the invite link and send it to a friend who has the extension. The link is the site's home page plus the room code, and it works before any video is playing. Opening it joins the room and opens whatever video the room is on. Older links that already include a video still work, and so does pasting a bare room code.
 3. Play, pause, seek or pick another video in either browser and everyone follows.
 4. Queue videos by right-clicking any YouTube link (or a YouTube watch page) and choosing Add to JukeBot queue, by pasting a link into the side panel, or with Add this tab's video in the popup. When a video ends the room plays the next one, or follows the site's own autoplay if the queue is empty. Skip jumps the room to the next queued video.
 5. Choose Open chat in the popup to open Chrome's side panel. It shows who is here, the queue, and a chat log with activity lines (who paused, skipped, added and so on) and typing indicators. Set your name at the top. Everyone gets their own color, and your messages are marked (you). Enter sends a message and Shift+Enter starts a new line.

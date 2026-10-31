@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JukeBot P2P",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "minimum_chrome_version": "116",
   "description": "Listen to YouTube and YouTube Music in sync with friends, browser to browser.",
   "permissions": ["offscreen", "sidePanel", "storage", "contextMenus", "notifications"],

@@ -8,9 +8,21 @@ let status = null
 
 const bg = msg => chrome.runtime.sendMessage({to: 'bg', ...msg})
 
-function newRoomId() {
-  const bytes = crypto.getRandomValues(new Uint8Array(12))
-  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+function hex(bytes) {
+  const buf = crypto.getRandomValues(new Uint8Array(bytes))
+  return Array.from(buf, b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// A name becomes `<slug>-<12 hex>`. Blank, or a name with no letters or digits, stays fully random.
+function newRoomId(name) {
+  const slug = String(name ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32)
+    .replace(/^-+|-+$/g, '')
+  if (!slug) return hex(12)
+  return `${slug}-${hex(6)}`
 }
 
 function showError(text) {
@@ -28,6 +40,7 @@ async function render() {
     pill.textContent = 'no room'
     const canStart = Boolean(watchVid(tab?.url))
     $('start').hidden = !canStart
+    $('room-name').hidden = !canStart
     $('start-hint').hidden = canStart
     return
   }
@@ -36,7 +49,7 @@ async function render() {
   pill.textContent = peers ? `${peers + 1} listening` : state ? 'waiting for friends' : 'connecting'
   const roomTab = await chrome.tabs.get(tabId).catch(() => null)
   const host = roomTab ? new URL(roomTab.url).host : 'music.youtube.com'
-  $('link').value = state?.v ? `https://${host}/watch?v=${state.v}#jukebot=${roomId}` : roomId
+  $('link').value = `https://${host}/#jukebot=${roomId}`
   $('where').textContent = tabId === tab?.id ? 'This tab plays for the room.' : `The room plays in another tab: ${roomTab?.title ?? 'closed'}`
   const queue = state?.queue ?? []
   $('queue').replaceChildren(...queue.map((item, i) => {
@@ -68,7 +81,7 @@ async function refresh() {
 }
 
 $('start').onclick = async () => {
-  const r = await bg({type: 'join', roomId: newRoomId(), tabId: tab.id})
+  const r = await bg({type: 'join', roomId: newRoomId($('room-name').value), tabId: tab.id})
   if (r?.error) return showError(r.error)
   await chrome.tabs.sendMessage(tab.id, {type: 'start', roomId: r.roomId}).catch(() => showError('Reload the YouTube tab, then try again.'))
   setTimeout(refresh, 200)
@@ -116,6 +129,8 @@ $('leave').onclick = async () => {
 chrome.runtime.onMessage.addListener(msg => {
   if (msg.to === 'bg' && msg.type === 'push') refresh()
 })
+
+window.newRoomId = newRoomId
 
 chrome.tabs.query({active: true, currentWindow: true}).then(([t]) => {
   tab = t

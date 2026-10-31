@@ -5,6 +5,7 @@
 (() => {
   const TOLERANCE = 2 // seconds of drift allowed before seeking
   const KNOWN = 'jukebot.knownVid' // last video this tab agreed on with the room; survives reloads
+  const FOLLOW = 'jukebot.followRoom' // joined from a page with no video: wait for the room's video, never seed or overwrite it
   const AUTOPLAY_WINDOW = 10000 // after an end the room moved on from, ignore the site's own autoplay for this long
   const SEED_AFTER = 8000 // no peer state by then: this tab is the room
 
@@ -16,6 +17,7 @@
   let navAt = 0
   let seedTimer = null
   let roomId = null
+  let followRoom = sessionStorage.getItem(FOLLOW) === '1'
   let generation = 0
   let joining = false
   let extensionSeek = false
@@ -42,6 +44,9 @@
   function enter(resetKnown) {
     inRoom = true
     aligned = false
+    // A home-page join has no video of its own. Writing an empty known id would
+    // make the next video look like this person's pick.
+    if (followRoom) return
     if (resetKnown || !sessionStorage.getItem(KNOWN)) sessionStorage.setItem(KNOWN, currentVid() ?? '')
   }
 
@@ -67,6 +72,7 @@
   // on whatever arrived in the meantime: a higher rev from a peer wins.
   function seedIfAlone() {
     seedTimer = null
+    if (followRoom) return
     if (!inRoom || state?.v) return
     if (!mediaReady() || !currentVid()) return armSeed()
     const patch = initialPatch()
@@ -130,15 +136,19 @@
       aligned = false
       const known = sessionStorage.getItem(KNOWN)
       const autoplay = Date.now() - lastEnded < AUTOPLAY_WINDOW && state.v !== endedVid
-      if (vid && vid !== known && !autoplay) {
+      if (!followRoom && vid && vid !== known && !autoplay) {
         // The local user picked another video: the room follows.
         sessionStorage.setItem(KNOWN, vid)
         const el = video()
         publish({v: vid, pos: mediaReady() ? el.currentTime : 0, playing: true}, 'pick')
-      } else if (Date.now() - navAt > 5000) {
+      } else if (followRoom || Date.now() - navAt > 5000) {
         navigate(state.v, expected(state))
       }
       return
+    }
+    if (followRoom) {
+      followRoom = false
+      sessionStorage.removeItem(FOLLOW)
     }
     sessionStorage.setItem(KNOWN, vid)
     const el = video()
@@ -180,7 +190,17 @@
       inRoom = false
     }
     roomId = id
-    sessionStorage.setItem(KNOWN, currentVid() ?? '')
+    if (currentVid()) {
+      followRoom = false
+      sessionStorage.removeItem(FOLLOW)
+      sessionStorage.setItem(KNOWN, currentVid())
+    } else {
+      // Home page (or any URL with no video). The hash is already gone, and
+      // YouTube Music may rewrite this URL, so the marker has to outlive both.
+      followRoom = true
+      sessionStorage.setItem(FOLLOW, '1')
+      sessionStorage.removeItem(KNOWN)
+    }
     send({to: 'bg', type: 'join', roomId: id}).then(r => {
       if (gen !== generation) return
       joining = false
@@ -209,6 +229,8 @@
     } else if (msg.type === 'left') {
       generation++
       roomId = null
+      followRoom = false
+      sessionStorage.removeItem(FOLLOW)
       joining = false
       clearTimeout(seedTimer)
       inRoom = false
@@ -216,6 +238,8 @@
     } else if (msg.type === 'start') {
       // This tab just created the room: its current video seeds the state.
       generation++
+      followRoom = false
+      sessionStorage.removeItem(FOLLOW)
       roomId = msg.roomId
       state = null
       clearTimeout(seedTimer)

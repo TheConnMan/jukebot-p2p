@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+Rooms can have a name. The name becomes the start of the room code, followed by random characters, so the code stays unguessable. Invite links no longer need a video in them: the link is the YouTube or YouTube Music home page plus the room code, and it is shown as soon as the room exists. Opening that link joins the room and then opens the room's video. Older invite links that include a video still work.
+
 ## 0.3.6
 
 Store readiness. The extension no longer downloads YouTube watch pages to read video lengths; a length now appears once a player in the room loads that video. Requires Chrome 116 or newer. Queue numbers in the popup line up again. Added a privacy policy (PRIVACY.md).

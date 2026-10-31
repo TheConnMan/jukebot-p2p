@@ -123,14 +123,17 @@ async function main() {
   await bgCall(popB, {type: 'setName', name: 'bob'})
   const invite = await popA.evaluate(async site => {
     const [tab] = await chrome.tabs.query({url: `https://${site}/*`})
-    const roomId = 'e2e' + Math.random().toString(16).slice(2)
+    const roomId = newRoomId('Friday Jams!')
     await chrome.runtime.sendMessage({to: 'bg', type: 'join', roomId, tabId: tab.id})
     await chrome.tabs.sendMessage(tab.id, {type: 'start', roomId})
     await new Promise(r => setTimeout(r, 300))
     const s = await chrome.runtime.sendMessage({to: 'bg', type: 'status'})
-    return `https://${site}/watch?v=${s.state.v}#jukebot=${s.roomId}`
+    return `https://${site}/#jukebot=${s.roomId}`
   }, SITE)
   console.log('invite', invite)
+  const vanity = new URL(invite).hash.slice('#jukebot='.length)
+  if (!/^friday-jams-[0-9a-f]{12}$/.test(vanity)) throw new Error(`FAIL vanity room code: ${vanity}`)
+  console.log('ok   vanity room code', vanity)
   await hasEvent('start event', popA, /^alice started the room with .+/)
   await offCall(popA, {type: 'say', text: 'said before B joined'})
 
