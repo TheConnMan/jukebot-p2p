@@ -13,6 +13,7 @@ const PEOPLE_TAGS = ['join', 'leave', 'rename']
 
 let creating = null
 const panels = new Set() // open side panel ports; while any is open, chat counts as read
+let unreadChain = Promise.resolve()
 
 async function ensureOffscreen() {
   if (await chrome.offscreen.hasDocument()) return
@@ -55,9 +56,9 @@ async function join(roomId, tabId) {
   return toOffscreen({type: 'join', roomId, tabId, profile: await profile(), ownMessages})
 }
 
-async function leave() {
+async function leave(expectedTabId) {
   const s = await status()
-  if (!s) return
+  if (!s || (expectedTabId != null && s.tabId !== expectedTabId)) return
   await toOffscreen({type: 'leave'})
   await chrome.offscreen.closeDocument()
   await chrome.storage.session.set({unread: 0, peers: null})
@@ -91,24 +92,29 @@ async function push({roomId, tabId, state, peers}) {
   await badge()
 }
 
-async function incoming(messages) {
-  if (panels.size) return
-  const chats = messages.filter(m => m.kind !== 'event')
-  const songs = messages.filter(m => m.kind === 'event' && SONG_TAGS.includes(m.tag))
-  const people = messages.filter(m => m.kind === 'event' && PEOPLE_TAGS.includes(m.tag))
-  const {unread = 0} = await chrome.storage.session.get('unread')
-  if (chats.length) await chrome.storage.session.set({unread: unread + chats.length})
-  await badge()
-  const {notifyChat = true, notifySongs = true, notifyPeople = true} = await chrome.storage.local.get(['notifyChat', 'notifySongs', 'notifyPeople'])
-  const show = (m, title) => chrome.notifications.create(`m-${m.id}`, {type: 'basic', iconUrl: 'icon128.png', title, message: m.text}).catch(() => {})
-  const notices = [...(notifyChat ? chats : []), ...(notifySongs ? songs : []), ...(notifyPeople ? people : [])]
-  for (const m of notices.slice(0, 3)) show(m, m.kind === 'event' ? 'JukeBot' : m.name || 'someone')
-  if (notices.length > 3) show({id: crypto.randomUUID(), text: `${notices.length - 3} more messages`}, 'JukeBot')
+function incoming(messages) {
+  unreadChain = unreadChain.then(async () => {
+    if (panels.size) return
+    const chats = messages.filter(m => m.kind !== 'event')
+    const songs = messages.filter(m => m.kind === 'event' && SONG_TAGS.includes(m.tag))
+    const people = messages.filter(m => m.kind === 'event' && PEOPLE_TAGS.includes(m.tag))
+    const {unread = 0} = await chrome.storage.session.get('unread')
+    if (panels.size) return
+    if (chats.length) await chrome.storage.session.set({unread: unread + chats.length})
+    await badge()
+    const {notifyChat = true, notifySongs = true, notifyPeople = true} = await chrome.storage.local.get(['notifyChat', 'notifySongs', 'notifyPeople'])
+    const show = (m, title) => chrome.notifications.create(`m-${m.id}`, {type: 'basic', iconUrl: 'icon128.png', title, message: m.text}).catch(() => {})
+    const notices = [...(notifyChat ? chats : []), ...(notifySongs ? songs : []), ...(notifyPeople ? people : [])]
+    for (const m of notices.slice(0, 3)) show(m, m.kind === 'event' ? 'JukeBot' : m.name || 'someone')
+    if (notices.length > 3) show({id: crypto.randomUUID(), text: `${notices.length - 3} more messages`}, 'JukeBot')
+  }).catch(() => {})
 }
 
-async function markRead() {
-  await chrome.storage.session.set({unread: 0})
-  await badge()
+function markRead() {
+  unreadChain = unreadChain.then(async () => {
+    await chrome.storage.session.set({unread: 0})
+    await badge()
+  }).catch(() => {})
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
@@ -154,9 +160,8 @@ chrome.tabs.onReplaced.addListener(async (addedTabId, removedTabId) => {
   if (await chrome.offscreen.hasDocument()) await toOffscreen({type: 'rebind', oldTabId: removedTabId, tabId: addedTabId})
 })
 
-chrome.tabs.onRemoved.addListener(async tabId => {
-  const s = await status()
-  if (s?.tabId === tabId) leave()
+chrome.tabs.onRemoved.addListener(tabId => {
+  leave(tabId)
 })
 
 chrome.runtime.onInstalled.addListener(() => {

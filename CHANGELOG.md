@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5
+
+A song added in the same moment as someone else's change stays in the queue when the other change wins the tie. Closing the previous room tab while another tab joins no longer closes the new room. The unread count stays right when several messages arrive together or the side panel opens at the same time.
+
 ## 0.3.4
 
 Invite links now ask before joining or replacing a room. Switching rooms clears the previous playback state, and empty rooms retry starting once a real video is ready, including after reloading or waiting through an ad.

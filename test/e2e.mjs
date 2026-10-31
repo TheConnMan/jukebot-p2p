@@ -246,6 +246,55 @@ async function main() {
     return {ok: s.typing.some(t => t.name === 'bob'), info: s.typing}
   })
 
+  const realmId = pop => pop.evaluate(async () => (await import('./vendor/trystero.js')).selfId)
+  const [realmA, realmB, offA, offB] = await Promise.all([realmId(popA), realmId(popB), status(popA), status(popB)])
+  const tie = [
+    {pop: popB, id: realmB, victim: popA, victimId: offA.selfId, page: A.page},
+    {pop: popA, id: realmA, victim: popB, victimId: offB.selfId, page: B.page}
+  ].find(c => c.id > c.victimId)
+  if (!tie) console.log('skip same-rev queue tie (no higher peer id)')
+  else {
+    const added = await bgCall(tie.victim, {type: 'add', url: `https://youtu.be/${SHORT}`})
+    if (!added?.ok) throw new Error(`FAIL tie add: ${JSON.stringify(added)}`)
+    const queued = await until('tie victim queued a song', async () => {
+      const q = (await status(tie.victim)).state?.queue ?? []
+      return {ok: q.some(item => item.id === SHORT), info: q}
+    })
+    const item = queued.info.find(entry => entry.id === SHORT)
+    const snap = await status(tie.victim)
+    const live = await player(tie.page)
+    await tie.pop.evaluate(async ({roomId, state, peerTarget}) => {
+      const {joinRoom} = await import('./vendor/trystero.js')
+      const attack = joinRoom({appId: 'jukebot-p2p', password: roomId, maxReceiveBytes: 256 * 1024}, roomId)
+      const forged = attack.makeAction('state')
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('tie peer did not join')), 20000)
+        attack.onPeerJoin = peerId => {
+          if (peerId !== peerTarget) return
+          forged.send(state, {target: peerId}).then(() => {
+            clearTimeout(timer)
+            attack.leave()
+            resolve()
+          }, reject)
+        }
+      })
+    }, {
+      roomId: snap.roomId,
+      peerTarget: snap.selfId,
+      state: {...snap.state, pos: live.t ?? snap.state.pos, queue: (snap.state.queue ?? []).filter(entry => entry.qid !== item.qid)}
+    })
+    await until('same-rev tie keeps the local queue add', async () => {
+      const s = await status(tie.victim)
+      const q = s.state?.queue ?? []
+      return {ok: s.state?.rev > snap.state.rev && q.some(entry => entry.qid === item.qid), info: {rev: s.state?.rev, q}}
+    })
+    await offCall(tie.victim, {type: 'remove', qid: item.qid})
+    await until('tie check queue cleared', async () => {
+      const [a, b] = await Promise.all([status(popA), status(popB)])
+      return {ok: !(a.state?.queue.length) && !(b.state?.queue.length), info: [a.state?.queue, b.state?.queue]}
+    })
+  }
+
   await A.page.evaluate(() => (document.querySelector('video.html5-main-video') || document.querySelector('video')).pause())
   await inSync('A pauses, B pauses', A.page, B.page, pa => pa.paused)
   await hasEvent('B sees alice paused', popB, /^alice paused$/)

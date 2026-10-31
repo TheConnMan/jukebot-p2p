@@ -41,6 +41,7 @@ const presenceAt = new Map()
 let generation = 0
 const ownMessages = new Map()
 let seekTimer = null
+const pendingAdds = new Map() // qid -> item this peer added and no accepted state has shown yet
 
 const position = s => s.pos + (s.playing ? (Date.now() - s.at) / 1000 : 0)
 const newer = (a, b) => !b || a.rev > b.rev || (a.rev === b.rev && a.by > b.by)
@@ -108,8 +109,19 @@ function join(id, tab, who, own) {
   actions.state.onMessage = (data, {peerId}) => {
     const s = cleanState({...data, by: peerId})
     if (!s || (state && s.rev > state.rev + REV_JUMP) || !newer(s, state)) return
+    // A same-rev tie can drop a local add. Put that item back once. A newer
+    // rev, a skip onto that video, or a local removal does not bring it back.
+    const lost = []
+    for (const [qid, item] of pendingAdds) {
+      const seen = s.queue.some(q => q.qid === qid) || s.v === item.id
+      const tied = state && s.rev === state.rev && state.queue.some(q => q.qid === qid)
+      if (seen || !tied) pendingAdds.delete(qid)
+      else lost.push(item)
+    }
+    for (const item of lost) pendingAdds.delete(item.qid)
     state = {...s, at: Date.now()}
     push()
+    if (lost.length) update({queue: [...state.queue, ...lost].slice(0, QUEUE_MAX)}, 'restore')
   }
   actions.chat.onMessage = (msgs, {peerId}) => {
     typing.delete(peerId)
@@ -146,6 +158,7 @@ function leave() {
   generation++
   room?.leave()
   room = actions = roomId = tabId = state = null
+  pendingAdds.clear()
   chat = []
   members.clear()
   typing.clear()
@@ -250,9 +263,15 @@ function update(patch, reason) {
   const next = cleanState({queue: [], ...state, ...patch, pos, rev: (state?.rev ?? 0) + 1, by: selfId})
   if (!next) return false
   state = {...next, at: Date.now()}
+  const qids = new Set(state.queue.map(q => q.qid))
+  for (const qid of pendingAdds.keys()) if (!qids.has(qid)) pendingAdds.delete(qid)
+  if (reason !== 'restore') {
+    const before = new Set((old?.queue ?? []).map(q => q.qid))
+    for (const q of state.queue) if (!before.has(q.qid)) pendingAdds.set(q.qid, q)
+  }
   actions.state.send(wire(state))
   push()
-  if (reason !== 'meta') describe(old, state, reason)
+  if (reason !== 'meta' && reason !== 'restore') describe(old, state, reason)
   if (fresh && (!state.title || state.duration == null)) fillMeta(state.v)
   return true
 }
