@@ -1,3 +1,5 @@
+import {videoId as watchVid} from './youtube.js'
+
 const $ = id => document.getElementById(id)
 const HOSTS = ['www.youtube.com', 'music.youtube.com']
 
@@ -5,14 +7,6 @@ let tab = null
 let status = null
 
 const bg = msg => chrome.runtime.sendMessage({to: 'bg', ...msg})
-const watchVid = url => {
-  try {
-    const u = new URL(url)
-    return HOSTS.includes(u.host) ? u.searchParams.get('v') : null
-  } catch {
-    return null
-  }
-}
 
 function newRoomId() {
   const bytes = crypto.getRandomValues(new Uint8Array(12))
@@ -76,7 +70,7 @@ async function refresh() {
 $('start').onclick = async () => {
   const r = await bg({type: 'join', roomId: newRoomId(), tabId: tab.id})
   if (r?.error) return showError(r.error)
-  await chrome.tabs.sendMessage(tab.id, {type: 'start'}).catch(() => showError('Reload the YouTube tab, then try again.'))
+  await chrome.tabs.sendMessage(tab.id, {type: 'start', roomId: r.roomId}).catch(() => showError('Reload the YouTube tab, then try again.'))
   setTimeout(refresh, 200)
 }
 

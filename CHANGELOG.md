@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.4
+
+Invite links now ask before joining or replacing a room. Switching rooms clears the previous playback state, and empty rooms retry starting once a real video is ready, including after reloading or waiting through an ad.
+
+Seeking while a video buffers no longer fights the listener. New video picks start at the beginning instead of inheriting the previous video's position, and replaced browser tabs keep their room connection. Delayed song lookups stay in their original room.
+
+Room messages now have stricter sender, revision and size checks. Chat only marks messages created in this browser as yours, future timestamps cannot crowd out recent messages, and notification bursts and repeated presence changes are limited. Live chat arrives immediately while shared history stays silent. The bundled library rebuild pins its bundler version, and releases include an installable zip.
+
 ## 0.3.3
 
 Opening an invite when nobody else is in the room now starts the room from that tab after a short wait. The video in the link, the current position and whether it is playing become the room. If someone with a newer room shows up, that room wins.

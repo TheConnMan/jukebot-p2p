@@ -25,9 +25,8 @@ const CHAT_HISTORY = 50
 const QUEUE_MAX = 100
 const TYPING_FOR = 4000
 const SEEK_SETTLE = 1500
-// Older versions send backfill on the live chat action as a peer connects;
-// anything in a peer's first seconds is treated as history, not news.
-const BACKFILL_WINDOW = 3000
+const RECEIVE_MAX = 256 * 1024
+const REV_JUMP = 1000
 
 let room = null
 let actions = null
@@ -38,7 +37,9 @@ let chat = []
 let profile = {userId: '', name: ''}
 const members = new Map() // peerId -> {userId, name}
 const typing = new Map() // peerId -> last ping time
-const connectedAt = new Map() // peerId -> when the connection opened
+const presenceAt = new Map()
+let generation = 0
+const ownMessages = new Map()
 let seekTimer = null
 
 const position = s => s.pos + (s.playing ? (Date.now() - s.at) / 1000 : 0)
@@ -47,6 +48,7 @@ const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '')
 const num = v => (Number.isFinite(v) && v >= 0 ? v : null)
 const clock = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 const nameOf = peerId => members.get(peerId)?.name || 'someone'
+const messageKey = m => JSON.stringify([m.by, m.name, m.text, m.ts, m.kind, m.tag])
 
 function wire(s) {
   const {at, ...rest} = s
@@ -66,7 +68,7 @@ function cleanItem(item, i) {
 }
 
 function cleanState(s) {
-  if (!validId(s?.v) || !Number.isInteger(s.rev) || typeof s.by !== 'string') return null
+  if (!validId(s?.v) || (!Number.isSafeInteger(s.rev) || s.rev < 0) || typeof s.by !== 'string') return null
   return {
     v: s.v,
     title: str(s.title, 200),
@@ -80,12 +82,13 @@ function cleanState(s) {
 }
 
 function push() {
-  chrome.runtime.sendMessage({to: 'bg', type: 'push', tabId, state, peers: members.size}).catch(() => {})
+  chrome.runtime.sendMessage({to: 'bg', type: 'push', roomId, tabId, state, peers: members.size}).catch(() => {})
 }
 
 const nudge = type => chrome.runtime.sendMessage({to: 'chat', type}).catch(() => {})
 
-function join(id, tab, who) {
+function join(id, tab, who, own) {
+  for (const [id, key] of own) ownMessages.set(id, key)
   if (who) profile = who
   if (room && id === roomId) {
     // Same room from another (or reloaded) tab: hand it the current state now.
@@ -98,27 +101,27 @@ function join(id, tab, who) {
   tabId = tab
   // The room id doubles as the password, so signaling data on the public
   // relays is encrypted with a secret only invite holders know.
-  room = joinRoom({appId: APP_ID, password: id}, id)
-  const make = name => room.makeAction(name)
+  room = joinRoom({appId: APP_ID, password: id, maxReceiveBytes: RECEIVE_MAX}, id)
+  const make = name => room.makeAction(name, {onReceive: ({byteLength}) => byteLength <= RECEIVE_MAX})
   actions = {state: make('state'), chat: make('chat'), history: make('history'), hello: make('hello'), typing: make('typing')}
 
-  actions.state.onMessage = data => {
-    const s = cleanState(data)
-    if (!s || !newer(s, state)) return
+  actions.state.onMessage = (data, {peerId}) => {
+    const s = cleanState({...data, by: peerId})
+    if (!s || (state && s.rev > state.rev + REV_JUMP) || !newer(s, state)) return
     state = {...s, at: Date.now()}
     push()
   }
   actions.chat.onMessage = (msgs, {peerId}) => {
     typing.delete(peerId)
-    addChat(msgs, Date.now() - (connectedAt.get(peerId) ?? 0) > BACKFILL_WINDOW)
+    addChat(msgs, true)
   }
   actions.history.onMessage = msgs => addChat(msgs, false)
   actions.hello.onMessage = (data, {peerId}) => {
     const who = {userId: str(data?.userId, 40), name: str(data?.name, 40) || 'someone'}
     const before = members.get(peerId)
     members.set(peerId, who)
-    if (!before) note(who, 'joined', 'join')
-    else if (before.name !== who.name) note(who, `${before.name} is now ${who.name}`, 'rename')
+    if (!before) note(who, 'joined', 'join', peerId)
+    else if (before.name !== who.name) note(who, `${before.name} is now ${who.name}`, 'rename', peerId)
     push()
   }
   actions.typing.onMessage = (_, {peerId}) => {
@@ -126,14 +129,13 @@ function join(id, tab, who) {
     nudge('typing')
   }
   room.onPeerJoin = peerId => {
-    connectedAt.set(peerId, Date.now())
     actions.hello.send(profile, {target: peerId})
     if (state) actions.state.send(wire(state), {target: peerId})
     const history = chat.filter(m => !m.local).slice(-CHAT_HISTORY)
     if (history.length) actions.history.send(history, {target: peerId})
   }
   room.onPeerLeave = peerId => {
-    note(members.get(peerId) ?? {userId: '', name: 'someone'}, 'left', 'leave')
+    note(members.get(peerId) ?? {userId: '', name: 'someone'}, 'left', 'leave', peerId)
     members.delete(peerId)
     typing.delete(peerId)
     push()
@@ -141,16 +143,17 @@ function join(id, tab, who) {
 }
 
 function leave() {
+  generation++
   room?.leave()
   room = actions = roomId = tabId = state = null
   chat = []
   members.clear()
   typing.clear()
-  connectedAt.clear()
+  presenceAt.clear()
   clearTimeout(seekTimer)
 }
 
-function addChat(msgs, live) {
+function addChat(msgs, live, own = false, local = false) {
   if (!Array.isArray(msgs)) return
   const seen = new Set(chat.map(m => m.id))
   const added = []
@@ -163,13 +166,18 @@ function addChat(msgs, live) {
       continue
     }
     seen.add(m.id)
-    const entry = {id: m.id.slice(0, 40), by: str(m.by, 40), name: str(m.name, 40), text: m.text.slice(0, 1000), ts: num(m.ts) ?? Date.now()}
+    if (own) ownMessages.set(m.id, messageKey(m))
+    const entry = {id: m.id.slice(0, 40), by: str(m.by, 40), name: str(m.name, 40), text: m.text.slice(0, 1000), ts: Math.min(num(m.ts) ?? Date.now(), Date.now()), self: ownMessages.get(m.id) === messageKey(m)}
     if (m.kind === 'event') Object.assign(entry, {kind: 'event', tag: str(m.tag, 10)})
-    if (m.local === true) entry.local = true
+    if (local) entry.local = true
     chat.push(entry)
     added.push(entry)
   }
-  chat = chat.sort((a, b) => a.ts - b.ts).slice(-CHAT_KEEP)
+  chat = chat.slice(-CHAT_KEEP)
+  if (own) {
+    while (ownMessages.size > 1000) ownMessages.delete(ownMessages.keys().next().value)
+    chrome.runtime.sendMessage({to: 'bg', type: 'authored', messages: [...ownMessages]}).catch(() => {})
+  }
   if (live && added.length) chrome.runtime.sendMessage({to: 'bg', type: 'incoming', messages: added}).catch(() => {})
   nudge('chat')
 }
@@ -180,7 +188,7 @@ function entry(text, extra) {
 
 function say(text) {
   const m = entry(text)
-  addChat([m], false)
+  addChat([m], false, true)
   actions.chat.send([m])
 }
 
@@ -188,16 +196,19 @@ function say(text) {
 function event(text, tag) {
   if (!actions) return
   const m = entry(text, {kind: 'event', tag})
-  addChat([m], false)
+  addChat([m], false, true)
   actions.chat.send([m])
 }
 
 // A line about `who` that only this peer sees (joins, leaves and renames, which
 // each peer notices itself). Also goes to the service worker for notifications.
-function note(who, what, tag) {
+function note(who, what, tag, peerId) {
   const text = tag === 'rename' ? what : `${who.name} ${what}`
   const m = {...entry(text, {kind: 'event', tag, local: true}), by: who.userId, name: who.name}
-  addChat([m], false)
+  addChat([m], false, false, true)
+  const now = Date.now()
+  if (now - (presenceAt.get(peerId) ?? 0) < 10000) return
+  presenceAt.set(peerId, now)
   chrome.runtime.sendMessage({to: 'bg', type: 'incoming', messages: [m]}).catch(() => {})
 }
 
@@ -212,7 +223,8 @@ function describe(old, next, reason) {
   const who = profile.name || 'someone'
   if (!old || next.v !== old.v) {
     const verb = {start: `${who} started the room with`, skip: `${who} skipped to`, advance: 'Now playing'}[reason] ?? `${who} started`
-    titled(next.v, next.title).then(t => event(`${verb} ${t}`, 'play'))
+    const gen = generation
+    titled(next.v, next.title).then(t => { if (gen === generation) event(`${verb} ${t}`, 'play') })
   } else if (next.playing !== old.playing) {
     event(`${who} ${next.playing ? 'resumed' : 'paused'}`, next.playing ? 'resume' : 'pause')
   } else if (Math.abs(next.pos - position(old)) > 2) {
@@ -235,16 +247,20 @@ function update(patch, reason) {
   if (fresh && !('title' in patch)) Object.assign(patch, {title: '', duration: null})
   // A patch without pos (queue or title edits) keeps playback where it is.
   const pos = 'pos' in patch ? patch.pos : old ? position(old) : 0
-  state = {queue: [], ...state, ...patch, pos, rev: (state?.rev ?? 0) + 1, by: selfId, at: Date.now()}
+  const next = cleanState({queue: [], ...state, ...patch, pos, rev: (state?.rev ?? 0) + 1, by: selfId})
+  if (!next) return false
+  state = {...next, at: Date.now()}
   actions.state.send(wire(state))
   push()
   if (reason !== 'meta') describe(old, state, reason)
   if (fresh && (!state.title || state.duration == null)) fillMeta(state.v)
+  return true
 }
 
 async function fillMeta(v) {
+  const gen = generation
   const info = await lookup(v)
-  if (state?.v !== v) return
+  if (gen !== generation || state?.v !== v) return
   const patch = {}
   if (!state.title && info.title) patch.title = info.title
   if (state.duration == null && info.duration) patch.duration = info.duration
@@ -257,8 +273,9 @@ function skip() {
 }
 
 async function add(id) {
+  const gen = generation
   const info = await lookup(id)
-  if (!state) return
+  if (gen !== generation || !state) return
   const item = {qid: crypto.randomUUID(), id, title: info.title || '', duration: info.duration, by: profile.userId, name: profile.name}
   update({queue: [...state.queue, item].slice(0, QUEUE_MAX)})
 }
@@ -285,10 +302,12 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg.to !== 'offscreen') return false
   const fromTab = sender.tab?.id
   // Extension pages and the service worker; content scripts report the page's URL.
-  const fromExtension = (sender.url ?? '').startsWith(`${location.origin}/`)
+  const fromExtension = sender.id === chrome.runtime.id && (sender.url ?? '').startsWith(`${location.origin}/`)
+  const fromRoomTab = sender.frameId === 0 && fromTab === tabId && /^https:\/\/(www\.youtube\.com|music\.youtube\.com)\//.test(sender.url ?? '')
+  if (['hello', 'update'].includes(msg.type) ? !fromRoomTab : !fromExtension) return false
   switch (msg.type) {
     case 'join':
-      join(msg.roomId, msg.tabId, msg.profile)
+      join(msg.roomId, msg.tabId, msg.profile, msg.ownMessages)
       reply(status())
       break
     case 'leave':
@@ -328,16 +347,22 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       if (room && fromExtension) remove(msg.qid)
       reply(true)
       break
+    case 'rebind':
+      if (tabId === msg.oldTabId) {
+        tabId = msg.tabId
+        push()
+      }
+      reply(true)
+      break
     case 'hello':
-      reply({inRoom: room != null && fromTab === tabId, state})
+      reply({inRoom: room != null, roomId, state})
       break
     case 'update':
-      // From the room's tab, or from an extension page. A start seed never
-      // replaces state that already arrived: a later higher rev still wins
+      // A start seed never replaces state that already arrived: a later
+      // higher rev still wins
       // through the normal path, and an earlier copy is left as it is.
-      if (room && (fromTab === tabId || fromExtension) && !(msg.reason === 'start' && state)) {
-        update(msg.patch, msg.reason)
-        reply(true)
+      if (room && fromRoomTab && msg.roomId === roomId && !(msg.reason === 'start' && state)) {
+        reply(update(msg.patch ?? {}, msg.reason))
       } else reply(false)
       break
     default:

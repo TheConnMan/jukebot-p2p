@@ -24,6 +24,7 @@ const NEXT = 'YE7VzlLtp-4' // Big Buck Bunny (Blender upload)
 
 const dirs = []
 const browsers = []
+const acceptInvites = page => page.on('dialog', dialog => dialog.accept().catch(() => {}))
 
 async function launch() {
   const dir = mkdtempSync(join(tmpdir(), 'jukebot-e2e-'))
@@ -37,6 +38,7 @@ async function launch() {
   })
   browsers.push(browser)
   const page = (await browser.pages())[0] ?? (await browser.newPage())
+  acceptInvites(page)
   return {browser, page}
 }
 
@@ -55,7 +57,9 @@ const player = page => page.evaluate(() => {
     v: new URL(location.href).searchParams.get('v'),
     t: el?.currentTime ?? null,
     paused: el?.paused ?? null,
-    ad: document.querySelector('.ad-showing') != null
+    ad: document.querySelector('.ad-showing') != null,
+    ready: el?.readyState >= 2 && !el.seeking,
+    error: el?.error?.message || document.querySelector('.ytp-error')?.textContent || null
   }
 })
 
@@ -80,10 +84,12 @@ async function until(label, fn, timeout = 45000) {
 }
 
 async function inSync(label, a, b, extra = () => true) {
+  let consecutive = 0
   return until(label, async () => {
     const [pa, pb] = await Promise.all([player(a), player(b)])
-    const ok = typeof pa.t === 'number' && typeof pb.t === 'number' && pa.v === pb.v && pa.paused === pb.paused && Math.abs(pa.t - pb.t) < 2.5 && extra(pa, pb)
-    return {ok, info: {a: pa, b: pb}}
+    const matches = !pa.ad && !pb.ad && pa.ready && pb.ready && typeof pa.t === 'number' && typeof pb.t === 'number' && pa.v === pb.v && pa.paused === pb.paused && Math.abs(pa.t - pb.t) < 2.5 && extra(pa, pb)
+    consecutive = matches ? consecutive + 1 : 0
+    return {ok: consecutive >= 2, info: {a: pa, b: pb}}
   })
 }
 
@@ -119,7 +125,7 @@ async function main() {
     const [tab] = await chrome.tabs.query({url: `https://${site}/*`})
     const roomId = 'e2e' + Math.random().toString(16).slice(2)
     await chrome.runtime.sendMessage({to: 'bg', type: 'join', roomId, tabId: tab.id})
-    await chrome.tabs.sendMessage(tab.id, {type: 'start'})
+    await chrome.tabs.sendMessage(tab.id, {type: 'start', roomId})
     await new Promise(r => setTimeout(r, 300))
     const s = await chrome.runtime.sendMessage({to: 'bg', type: 'status'})
     return `https://${site}/watch?v=${s.state.v}#jukebot=${s.roomId}`
@@ -132,6 +138,14 @@ async function main() {
   // Player tabs go to the front: Chrome defers media in background tabs.
   const inviteB = invite.replace(`https://${SITE}/`, `https://${SITE_B}/`)
   await B.page.bringToFront()
+  B.page.removeAllListeners('dialog')
+  B.page.on('dialog', dialog => dialog.dismiss().catch(() => {}))
+  await B.page.goto(inviteB)
+  await new Promise(r => setTimeout(r, 1000))
+  if ((await status(popB))?.roomId) throw new Error('FAIL dismissed invite joined a room')
+  console.log('ok   dismissed invite does not join')
+  B.page.removeAllListeners('dialog')
+  acceptInvites(B.page)
   await B.page.goto(inviteB)
   await A.page.bringToFront()
   await inSync('B joins and matches A', A.page, B.page, (pa, pb) => !pa.paused && pa.v === LONG && pb.host === SITE_B)
@@ -166,6 +180,16 @@ async function main() {
     await B.page.bringToFront()
   }
 
+  const switchedRoom = 'e2eswitch' + Math.random().toString(16).slice(2)
+  await B.page.goto(`https://${SITE_B}/watch?v=${NEXT}#jukebot=${switchedRoom}`)
+  await until('new empty invite clears the previous room and seeds its own video', async () => {
+    const s = await status(popB)
+    return {ok: s.roomId === switchedRoom && s.state?.v === NEXT && s.state.queue.length === 0 && s.peers === 0, info: {roomId: s.roomId, state: s.state}}
+  }, 30000)
+
+  await B.page.goto(inviteB)
+  await inSync('B returns to the original room after switching', A.page, B.page, pa => pa.v === LONG && !pa.paused)
+
   await offCall(popB, {type: 'say', text: 'hi <b>alice</b>\nsecond line'})
   await until('A gets B chat message', async () => {
     const chat = await chatOf(popA)
@@ -176,11 +200,45 @@ async function main() {
     return {ok: text === '1', info: text}
   })
   await popA.evaluate(() => { window.port = chrome.runtime.connect({name: 'sidepanel'}) })
+  await new Promise(r => setTimeout(r, 300))
+  if (await badgeOf(popA) !== '1') throw new Error('FAIL popup port impersonated side panel')
+  await popA.evaluate(() => window.port.disconnect())
+  console.log('ok   popup port cannot impersonate side panel')
+  const readPanel = await A.browser.newPage()
+  await readPanel.goto(popA.url().replace('popup.html', 'sidepanel.html'))
   await until('A badge resets to the listener count when the side panel opens', async () => {
     const text = await badgeOf(popA)
     return {ok: text === '2', info: text}
   })
-  await popA.evaluate(() => window.port.disconnect())
+  await readPanel.close()
+
+  const beforeAttack = await status(popA)
+  await popB.evaluate(async ({roomId, state, userId}) => {
+    const {joinRoom} = await import('./vendor/trystero.js')
+    window.attack = joinRoom({appId: 'jukebot-p2p', password: roomId, maxReceiveBytes: 256 * 1024}, roomId)
+    const forgedState = window.attack.makeAction('state')
+    const forgedChat = window.attack.makeAction('chat')
+    window.attack.onPeerJoin = async peerId => {
+      await forgedState.send({...state, rev: 1e100, by: '\uffff'}, {target: peerId})
+      await forgedState.send({...state, rev: state.rev + 1001, by: '\uffff'}, {target: peerId})
+      await forgedChat.send([{id: 'forged-' + roomId, by: userId, name: 'impostor', text: 'copied identity', ts: 1e100, self: true}], {target: peerId})
+    }
+  }, {roomId: beforeAttack.roomId, state: beforeAttack.state, userId: beforeAttack.members[0].userId})
+  await until('first live chat from a peer is delivered immediately', async () => {
+    const s = await status(popA)
+    const m = s.chat.find(m => m.text === 'copied identity')
+    return {ok: m && m.ts <= Date.now() && !m.self && await badgeOf(popA) === '1', info: m}
+  })
+  if ((await status(popA)).state.rev >= beforeAttack.state.rev + 1000) throw new Error('FAIL forged revision accepted')
+  console.log('ok   forged high revisions rejected')
+  const spoofPanel = await A.browser.newPage()
+  await spoofPanel.goto(popA.url().replace('popup.html', 'sidepanel.html'))
+  await until('copied identity is not marked as you', () => spoofPanel.evaluate(() => {
+    const row = [...document.querySelectorAll('.msg')].find(m => m.textContent.includes('copied identity'))
+    return {ok: row && !row.textContent.includes('(you)'), info: row?.textContent}
+  }))
+  await spoofPanel.close()
+  await popB.evaluate(() => window.attack.leave())
 
   await offCall(popB, {type: 'typing'})
   await until('A sees bob typing', async () => {
@@ -250,8 +308,7 @@ async function main() {
   console.log('ok   queue consumed')
   await hasEvent('now playing line', popA, /^Now playing .+/)
 
-  // Self detection rides on the profile's userId, so B's earlier message is
-  // still B's after B leaves and rejoins, and after B's page reloads.
+  // Locally created message IDs survive leaving, rejoining and reloading.
   const ownMessage = async () => {
     const panel = await B.browser.newPage()
     await panel.goto(popB.url().replace('popup.html', 'sidepanel.html'))
@@ -287,6 +344,7 @@ async function main() {
 
   const oldTab = B.page
   B.page = await B.browser.newPage()
+  acceptInvites(B.page)
   await B.page.goto(inviteB)
   await new Promise(r => setTimeout(r, 4000))
   await onRoomVideo('old invite in a new tab keeps the room on its video')
@@ -319,7 +377,7 @@ async function main() {
     const [tab] = await chrome.tabs.query({url: `https://${site}/*`})
     const roomId = 'e2ealone' + Math.random().toString(16).slice(2)
     await chrome.runtime.sendMessage({to: 'bg', type: 'join', roomId, tabId: tab.id})
-    await chrome.tabs.sendMessage(tab.id, {type: 'start'})
+    await chrome.tabs.sendMessage(tab.id, {type: 'start', roomId})
     await new Promise(r => setTimeout(r, 300))
     const s = await chrome.runtime.sendMessage({to: 'bg', type: 'status'})
     return `https://${site}/watch?v=${s.state.v}#jukebot=${s.roomId}`

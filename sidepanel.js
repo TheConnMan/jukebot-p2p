@@ -23,8 +23,7 @@ function hue(id) {
 }
 
 // A person's name in their color, marked when it is you.
-function person(name, id) {
-  const self = id === userId
+function person(name, id, self = id === userId) {
   return el('span', `who ${hue(id)}`, `${name || 'someone'}${self ? ' (you)' : ''}`)
 }
 
@@ -55,12 +54,12 @@ function renderLog(chat, inRoom) {
     if (m.kind === 'event') {
       // Lines that start with the actor's name show the name in their color.
       const div = el('div', 'msg event')
-      if (m.name && m.text.startsWith(`${m.name} `)) div.append(person(m.name, m.by), m.text.slice(m.name.length))
+      if (m.name && m.text.startsWith(`${m.name} `)) div.append(person(m.name, m.by, m.self === true), m.text.slice(m.name.length))
       else div.append(m.text)
       return div
     }
     const div = el('div', `msg ${hue(m.by)}`)
-    div.append(person(m.name, m.by), el('span', 'ts', time(m.ts)), el('div', 'text', m.text))
+    div.append(person(m.name, m.by, m.self === true), el('span', 'ts', time(m.ts)), el('div', 'text', m.text))
     return div
   }))
   if (atBottom) log.scrollTop = log.scrollHeight

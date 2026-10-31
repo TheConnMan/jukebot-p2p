@@ -9,7 +9,7 @@ import {videoId} from './youtube.js'
 const AMBER = '#efb146'
 const RED = '#fb794a'
 const SONG_TAGS = ['add', 'play']
-const PEOPLE_TAGS = ['join', 'leave']
+const PEOPLE_TAGS = ['join', 'leave', 'rename']
 
 let creating = null
 const panels = new Set() // open side panel ports; while any is open, chat counts as read
@@ -51,7 +51,8 @@ async function join(roomId, tabId) {
   if (before?.roomId !== roomId) await chrome.storage.session.set({unread: 0})
   // Only one tab plays for the room; the one it moves away from stops syncing.
   if (before?.tabId != null && before.tabId !== tabId) chrome.tabs.sendMessage(before.tabId, {type: 'left'}).catch(() => {})
-  return toOffscreen({type: 'join', roomId, tabId, profile: await profile()})
+  const {ownMessages = []} = await chrome.storage.session.get('ownMessages')
+  return toOffscreen({type: 'join', roomId, tabId, profile: await profile(), ownMessages})
 }
 
 async function leave() {
@@ -84,8 +85,8 @@ async function badge() {
   }
 }
 
-async function push({tabId, state, peers}) {
-  chrome.tabs.sendMessage(tabId, {type: 'state', state}).catch(() => {})
+async function push({roomId, tabId, state, peers}) {
+  chrome.tabs.sendMessage(tabId, {type: 'state', roomId, state}).catch(() => {})
   await chrome.storage.session.set({peers})
   await badge()
 }
@@ -100,9 +101,9 @@ async function incoming(messages) {
   await badge()
   const {notifyChat = true, notifySongs = true, notifyPeople = true} = await chrome.storage.local.get(['notifyChat', 'notifySongs', 'notifyPeople'])
   const show = (m, title) => chrome.notifications.create(`m-${m.id}`, {type: 'basic', iconUrl: 'icon128.png', title, message: m.text}).catch(() => {})
-  if (notifyChat) for (const m of chats) show(m, m.name || 'someone')
-  if (notifySongs) for (const m of songs) show(m, 'JukeBot')
-  if (notifyPeople) for (const m of people) show(m, 'JukeBot')
+  const notices = [...(notifyChat ? chats : []), ...(notifySongs ? songs : []), ...(notifyPeople ? people : [])]
+  for (const m of notices.slice(0, 3)) show(m, m.kind === 'event' ? 'JukeBot' : m.name || 'someone')
+  if (notices.length > 3) show({id: crypto.randomUUID(), text: `${notices.length - 3} more messages`}, 'JukeBot')
 }
 
 async function markRead() {
@@ -112,6 +113,14 @@ async function markRead() {
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg.to !== 'bg') return false
+  const fromExtension = sender.id === chrome.runtime.id && (sender.url ?? '').startsWith(chrome.runtime.getURL(''))
+  const fromOffscreen = fromExtension && sender.url === chrome.runtime.getURL('offscreen.html')
+  const fromTab = sender.frameId === 0 && sender.tab && /^https:\/\/(www\.youtube\.com|music\.youtube\.com)\//.test(sender.url ?? '')
+  if (['push', 'incoming', 'authored'].includes(msg.type) ? !fromOffscreen : msg.type === 'join' ? !(fromExtension || fromTab) : !fromExtension) return false
+  if (msg.type === 'authored') {
+    chrome.storage.session.set({ownMessages: msg.messages})
+    return false
+  }
   if (msg.type === 'push') {
     push(msg)
     return false
@@ -120,7 +129,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     incoming(msg.messages)
     return false
   }
-  const tabId = msg.tabId ?? sender.tab?.id
+  const tabId = fromTab ? sender.tab.id : msg.tabId
   const work = {
     join: () => join(msg.roomId, tabId),
     leave,
@@ -135,10 +144,14 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 })
 
 chrome.runtime.onConnect.addListener(port => {
-  if (port.name !== 'sidepanel') return
+  if (port.name !== 'sidepanel' || port.sender?.id !== chrome.runtime.id || port.sender?.url !== chrome.runtime.getURL('sidepanel.html')) return
   panels.add(port)
   markRead()
   port.onDisconnect.addListener(() => panels.delete(port))
+})
+
+chrome.tabs.onReplaced.addListener(async (addedTabId, removedTabId) => {
+  if (await chrome.offscreen.hasDocument()) await toOffscreen({type: 'rebind', oldTabId: removedTabId, tabId: addedTabId})
 })
 
 chrome.tabs.onRemoved.addListener(async tabId => {

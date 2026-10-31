@@ -15,6 +15,12 @@
   let endedVid = null
   let navAt = 0
   let seedTimer = null
+  let roomId = null
+  let generation = 0
+  let joining = false
+  let extensionSeek = false
+  let mediaVid = null
+  let mediaSrc = null
 
   const video = () => document.querySelector('video.html5-main-video') || document.querySelector('video')
   const currentVid = () => new URL(location.href).searchParams.get('v')
@@ -22,6 +28,11 @@
   const expected = s => s.pos + (s.playing ? (Date.now() - s.at) / 1000 : 0)
   const send = msg => chrome.runtime.sendMessage(msg).catch(() => undefined)
   const title = () => document.title.replace(/^\(\d+\)\s*/, '').replace(/\s+-\s+YouTube( Music)?$/, '')
+
+  const mediaReady = () => {
+    const el = video()
+    return !adShowing() && el?.readyState >= 1 && mediaVid === currentVid() && mediaSrc === el.currentSrc
+  }
 
   function snapshot() {
     const el = video()
@@ -37,7 +48,7 @@
   // `reason` labels a video change for the activity log: start, pick, advance.
   function publish(patch, reason) {
     state = {...state, ...patch, at: Date.now()}
-    send({to: 'offscreen', type: 'update', patch, reason})
+    send({to: 'offscreen', type: 'update', roomId, patch, reason})
   }
 
   // Same patch "Start a room" publishes. `v` is the watch URL, which on an
@@ -57,10 +68,11 @@
   function seedIfAlone() {
     seedTimer = null
     if (!inRoom || state?.v) return
+    if (!mediaReady() || !currentVid()) return armSeed()
     const patch = initialPatch()
-    if (!patch.v) return
-    send({to: 'offscreen', type: 'update', patch, reason: 'start'}).then(ok => {
-      if (ok !== true || state?.v) return
+    const gen = generation
+    send({to: 'offscreen', type: 'update', roomId, patch, reason: 'start'}).then(ok => {
+      if (gen !== generation || ok !== true || state?.v) return
       state = {...patch, at: Date.now()}
       sessionStorage.setItem(KNOWN, patch.v)
       aligned = true
@@ -79,13 +91,27 @@
   }
 
   function onMedia(e) {
+    if (e.target !== video()) return
+    if (e.type === 'loadedmetadata') {
+      mediaVid = currentVid()
+      mediaSrc = e.target.currentSrc
+    }
+    if (e.type === 'emptied') {
+      mediaVid = mediaSrc = null
+      extensionSeek = false
+    }
+    if (e.type === 'seeked' && extensionSeek) {
+      extensionSeek = false
+      return
+    }
     if (inRoom && e.type === 'ended') {
       // Recorded even when the room already advanced past this video, so the
       // site's autoplay that follows is not mistaken for the user's pick.
       lastEnded = Date.now()
       endedVid = currentVid()
     }
-    if (!inRoom || !state || !aligned || adShowing()) return
+    if (!['play', 'pause', 'seeked', 'ended'].includes(e.type)) return
+    if (!inRoom || !state || !aligned || !mediaReady() || extensionSeek) return
     const el = e.target
     if (el !== video() || currentVid() !== state.v) return
     if (e.type === 'ended') return onEnded()
@@ -108,7 +134,7 @@
         // The local user picked another video: the room follows.
         sessionStorage.setItem(KNOWN, vid)
         const el = video()
-        publish({v: vid, pos: el?.currentTime ?? 0, playing: true}, 'pick')
+        publish({v: vid, pos: mediaReady() ? el.currentTime : 0, playing: true}, 'pick')
       } else if (Date.now() - navAt > 5000) {
         navigate(state.v, expected(state))
       }
@@ -116,10 +142,11 @@
     }
     sessionStorage.setItem(KNOWN, vid)
     const el = video()
-    if (!el || el.readyState < 1) return
+    if (!mediaReady() || el.seeking) return
     const want = expected(state)
     let ok = true
     if (Math.abs(el.currentTime - want) > TOLERANCE && want < (el.duration || Infinity)) {
+      extensionSeek = true
       el.currentTime = want
       ok = false
     }
@@ -139,48 +166,77 @@
   // user's pick, so it is marked known and the room's current video wins.
   function joinFromHash() {
     const id = new URLSearchParams(location.hash.slice(1)).get('jukebot')
-    if (!id) return
-    sessionStorage.setItem(KNOWN, currentVid() ?? '')
+    if (!id) return false
     history.replaceState(history.state, '', location.href.split('#')[0])
+    if (!confirm('Join this JukeBot room? This replaces your current room if you are in one.')) return false
+    const gen = ++generation
+    joining = true
+    if (id !== roomId) {
+      clearTimeout(seedTimer)
+      state = null
+      aligned = false
+      inRoom = false
+    }
+    roomId = id
+    sessionStorage.setItem(KNOWN, currentVid() ?? '')
     send({to: 'bg', type: 'join', roomId: id}).then(r => {
-      if (!r || r.error) return
+      if (gen !== generation) return
+      joining = false
+      if (!r || r.error || r.roomId !== roomId) return
       enter(false)
-      if (r.state?.v) state = r.state
-      else armSeed()
+      state ??= r.state
+      if (!state?.v) armSeed()
     })
+    return true
   }
 
-  chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  chrome.runtime.onMessage.addListener((msg, sender) => {
+    if (!sender.url?.startsWith(chrome.runtime.getURL(''))) return false
     if (msg.type === 'state') {
+      if (roomId && msg.roomId !== roomId) return false
+      if (roomId !== msg.roomId) {
+        generation++
+        state = null
+      }
+      roomId = msg.roomId
       if (!inRoom) enter(false)
       if (msg.state?.v) clearTimeout(seedTimer)
       if (msg.state?.v !== state?.v) aligned = false
       state = msg.state
+      if (!state?.v) armSeed()
     } else if (msg.type === 'left') {
+      generation++
+      roomId = null
+      joining = false
       clearTimeout(seedTimer)
       inRoom = false
       state = null
     } else if (msg.type === 'start') {
       // This tab just created the room: its current video seeds the state.
+      generation++
+      roomId = msg.roomId
+      state = null
       clearTimeout(seedTimer)
       enter(true)
-      publish(initialPatch(), 'start')
-      aligned = true
-    } else if (msg.type === 'snapshot') {
-      reply(snapshot())
+      if (mediaReady()) seedIfAlone()
+      else armSeed()
     }
     return false
   })
 
-  for (const type of ['play', 'pause', 'seeked', 'ended']) document.addEventListener(type, onMedia, true)
+  for (const type of ['play', 'pause', 'seeked', 'ended', 'loadedmetadata', 'emptied']) document.addEventListener(type, onMedia, true)
   window.addEventListener('hashchange', joinFromHash)
-  joinFromHash()
+  const hadInvite = joinFromHash()
   setInterval(tick, 500)
 
-  send({to: 'offscreen', type: 'hello'}).then(r => {
-    if (r?.inRoom) {
+  if (!hadInvite) {
+    const gen = generation
+    send({to: 'offscreen', type: 'hello'}).then(r => {
+      if (gen !== generation || joining || !r?.inRoom) return
+      roomId = r.roomId
       enter(false)
       state ??= r.state
-    }
-  })
+      if (!state?.v) armSeed()
+    })
+  }
 })()
