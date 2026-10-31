@@ -36,3 +36,9 @@ Two browsers behind strict (symmetric) NATs may fail to connect directly; that w
 `npm install`, then `npm run test:e2e` starts two separate Chrome profiles against real YouTube and checks join, names, chat, activity lines, typing, the unread badge, pause, seek, queueing by link, skip, video change and queue advance. Set `CHROME` to the Chrome binary and `SITE=music.youtube.com` to run it against YouTube Music.
 
 `scripts/vendor-trystero.sh` rebuilds `vendor/trystero.js`.
+
+## Privacy and trademarks
+
+See [PRIVACY.md](PRIVACY.md). The developer receives no data from the extension.
+
+YouTube and YouTube Music are trademarks of Google LLC. JukeBot P2P is not affiliated with or endorsed by YouTube or Google.

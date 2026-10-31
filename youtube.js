@@ -17,7 +17,9 @@ export function videoId(link) {
 
 const cache = new Map()
 
-// Best-effort {title, duration} for a video; either may come back null.
+// Best-effort {title, duration} for a video. The title comes from YouTube's
+// public oEmbed endpoint; the duration stays null until a player in the room
+// loads the video and reports it.
 export function lookup(id) {
   if (!cache.has(id)) cache.set(id, fetchInfo(id))
   return cache.get(id)
@@ -25,15 +27,9 @@ export function lookup(id) {
 
 async function fetchInfo(id) {
   const watch = `https://www.youtube.com/watch?v=${id}`
-  const [title, duration] = await Promise.all([
-    fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(watch)}`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(j => (typeof j?.title === 'string' ? j.title.slice(0, 200) : null))
-      .catch(() => null),
-    fetch(watch)
-      .then(r => (r.ok ? r.text() : ''))
-      .then(html => Number(html.match(/"lengthSeconds":"(\d+)"/)?.[1]) || null)
-      .catch(() => null)
-  ])
-  return {title, duration}
+  const title = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(watch)}`)
+    .then(r => (r.ok ? r.json() : null))
+    .then(j => (typeof j?.title === 'string' ? j.title.slice(0, 200) : null))
+    .catch(() => null)
+  return {title, duration: null}
 }

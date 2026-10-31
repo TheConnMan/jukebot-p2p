@@ -158,6 +158,8 @@
       ok = false
     }
     if (ok) aligned = true
+    // Durations come from the player, not from YouTube's pages.
+    if (ok && state.duration == null && Number.isFinite(el.duration) && el.duration > 0) publish({duration: Math.round(el.duration)}, 'meta')
   }
 
   // Runs at document_start, before the first tick: YouTube Music rewrites the

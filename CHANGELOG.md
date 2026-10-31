@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6
+
+Store readiness. The extension no longer downloads YouTube watch pages to read video lengths; a length now appears once a player in the room loads that video. Requires Chrome 116 or newer. Queue numbers in the popup line up again. Added a privacy policy (PRIVACY.md).
+
 ## 0.3.5
 
 A song added in the same moment as someone else's change stays in the queue when the other change wins the tie. Closing the previous room tab while another tab joins no longer closes the new room. The unread count stays right when several messages arrive together or the side panel opens at the same time.
