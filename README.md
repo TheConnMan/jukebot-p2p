@@ -4,6 +4,10 @@ Listen to YouTube or YouTube Music in sync with friends, browser to browser. A s
 
 ## Install
 
+Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/ndapkngicjifglcgjeimindjgegplelh). Chrome keeps it up to date.
+
+To load a release build by hand instead:
+
 1. Download the zip from the latest [GitHub Release](https://github.com/TheConnMan/jukebot-p2p/releases/latest).
 2. Unzip it.
 3. Open chrome://extensions.
