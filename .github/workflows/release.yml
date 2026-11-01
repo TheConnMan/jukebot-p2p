@@ -14,16 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Tag matches manifest version
         if: github.event_name == 'push'
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          version="$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')"
-          if [ "$tag" != "$version" ]; then
-            echo "tag ${GITHUB_REF_NAME} is ${tag}; manifest.json is ${version}" >&2
-            exit 1
-          fi
+        run: python3 scripts/check-version.py --match-tag "$GITHUB_REF_NAME"
 
       - name: Package
         run: scripts/package.sh
@@ -57,3 +54,19 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" "$zip" --title "$GITHUB_REF_NAME" --generate-notes
           fi
+
+      - name: Chrome Web Store status
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CWS_SERVICE_ACCOUNT_KEY: ${{ secrets.CWS_SERVICE_ACCOUNT_KEY }}
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+        run: python3 scripts/cws.py status
+
+      - name: Chrome Web Store submit
+        if: github.event_name == 'push'
+        env:
+          CWS_SERVICE_ACCOUNT_KEY: ${{ secrets.CWS_SERVICE_ACCOUNT_KEY }}
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python3 scripts/cws.py submit "dist/jukebot-p2p-${version}.zip"

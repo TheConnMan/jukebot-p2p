@@ -16,7 +16,7 @@ To load a release build by hand instead:
 6. Pick the unzipped folder.
 7. After you update, reload the extension card on chrome://extensions.
 
-To release a version, bump the version in manifest.json, add a CHANGELOG.md entry for it, and push a tag vX.Y.Z.
+To release a version, bump the version in manifest.json, add a CHANGELOG.md entry for it, and push a tag vX.Y.Z. That tag push creates the GitHub Release and submits the build to the Chrome Web Store for review. After approval, publish it from the developer dashboard.
 
 ## Use
 

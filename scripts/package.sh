@@ -20,6 +20,11 @@ SHIPPED=(
   icon128.png
 )
 
+if [ "${1:-}" = "--list" ]; then
+  printf '%s\n' "${SHIPPED[@]}"
+  exit 0
+fi
+
 python3 - "${SHIPPED[@]}" << 'PY'
 import json, re, sys
 from pathlib import Path

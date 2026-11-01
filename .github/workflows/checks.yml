@@ -1,0 +1,30 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Package
+        run: scripts/package.sh
+
+      - name: Syntax
+        run: |
+          shopt -s nullglob
+          for file in *.js test/*.mjs; do
+            node --check "$file"
+          done
+
+      - name: Version and changelog
+        run: python3 scripts/check-version.py
