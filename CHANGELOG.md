@@ -2,7 +2,7 @@
 
 ## 0.5.0
 
-Optional public rooms. List a room publicly, browse current rooms and knock to ask to join. Any member can let a visitor in, decline or switch the room back to private. A visitor sets their name in the popup before knocking, so members can tell who is knocking, and a visitor who is let in lands on the room's current video on the site the room uses, with no extra prompt. Knocks appear above side-panel chat and use the people notification switch; admission posts an activity line. Public admission is capped at 12 people. Invite links and room codes still join directly.
+Optional public rooms. List a room publicly, browse current rooms and knock to ask to join. Any member can let a visitor in, decline or switch the room back to private. Your name is now set at the top of the popup, and Knock needs one, so members can tell who is knocking, and a visitor who is let in lands on the room's current video on the site the room uses, with no extra prompt. Knocks appear above side-panel chat and use the people notification switch; admission posts an activity line. Public admission is capped at 12 people. Invite links and room codes still join directly.
 
 The new Cloudflare directory lists only a separate lobby code, room name, current song and head count. Listings heartbeat every minute and expire after three minutes. Private rooms send nothing to the directory. No new extension permission is required. The server has SQLite-backed tests in CI.
 

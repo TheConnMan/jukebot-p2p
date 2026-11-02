@@ -147,7 +147,7 @@ $('leave').onclick = async () => {
 
 // Knock needs a name the members can read, and a full room never takes one.
 function syncKnock() {
-  const named = $('visitor-name').value.trim() !== ''
+  const named = $('my-name').value.trim() !== ''
   for (const button of document.querySelectorAll('#rooms button.knock')) button.disabled = button.dataset.full === 'true' || !named
 }
 
@@ -176,7 +176,7 @@ async function loadRooms() {
       button.textContent = room.count >= 12 ? 'Full' : 'Knock'
       button.dataset.full = room.count >= 12
       button.onclick = async () => {
-        await bg({type: 'setName', name: $('visitor-name').value})
+        await bg({type: 'setName', name: $('my-name').value})
         const ok = await bg({type: 'knock', listing: room, tabId: tab.id})
         if (ok !== true) showError(ok?.error || 'Unable to knock. Refresh and try again.')
         await refresh()
@@ -194,7 +194,10 @@ async function loadRooms() {
 }
 
 $('refresh-rooms').onclick = loadRooms
-$('visitor-name').oninput = syncKnock
+$('my-name').oninput = syncKnock
+$('my-name').onchange = () => {
+  if ($('my-name').value.trim()) bg({type: 'setName', name: $('my-name').value})
+}
 $('public').onchange = async () => {
   await chrome.runtime.sendMessage({to: 'offscreen', type: 'public', public: $('public').checked})
   await refresh()
@@ -213,6 +216,6 @@ window.newRoomId = newRoomId
 
 Promise.all([chrome.tabs.query({active: true, currentWindow: true}), bg({type: 'profile'})]).then(([[t], profile]) => {
   tab = t
-  $('visitor-name').value = profile?.name ?? ''
+  $('my-name').value = profile?.name ?? ''
   return refresh()
 })

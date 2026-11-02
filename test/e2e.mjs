@@ -133,7 +133,7 @@ async function publicScenario() {
   await popC.reload()
   await popC.waitForFunction(() => !document.querySelector('#out').hidden)
   await popC.bringToFront()
-  const prefilled = await popC.$eval('#visitor-name', el => el.value)
+  const prefilled = await popC.$eval('#my-name', el => el.value)
   if (prefilled !== 'sam') throw new Error(`FAIL name field is not prefilled from the stored name: ${prefilled}`)
   console.log('ok   name field is prefilled from the stored name')
   const directoryCall = (pop, path, options) => pop.evaluate(async ({path, options}) => {
@@ -171,6 +171,11 @@ async function publicScenario() {
     })).info
     publicLobby = started.state.lobby
     publicKey = started.state.key
+    await popA.reload()
+    await popA.waitForFunction(() => !document.querySelector('#in').hidden)
+    const inRoomName = await popA.$eval('#my-name', el => el.checkVisibility() ? el.value : null)
+    if (inRoomName !== 'alice') throw new Error(`FAIL name field is not shown in the room popup: ${inRoomName}`)
+    console.log('ok   name field is shown at the top of the in-room popup')
     if (publicLobby === started.roomId || started.state.key === started.roomId) throw new Error('FAIL public room leaked its real code into the lobby or key')
     await B.page.goto(`https://${SITE_B}/#jukebot=${started.roomId}`)
     await until('invite still joins public rooms directly', async () => {
@@ -189,9 +194,9 @@ async function publicScenario() {
         return {ok: !!row, info: row?.textContent}
       }, roomName))
       const knockDisabled = () => popC.evaluate(roomName => [...document.querySelectorAll('.room-row')].find(row => row.textContent.includes(roomName)).querySelector('button').disabled, roomName)
-      await popC.$eval('#visitor-name', el => { el.value = ''; el.dispatchEvent(new Event('input')) })
+      await popC.$eval('#my-name', el => { el.value = ''; el.dispatchEvent(new Event('input')) })
       await until('Knock is disabled while the name is empty', async () => ({ok: await knockDisabled()}))
-      await popC.type('#visitor-name', name)
+      await popC.type('#my-name', name)
       await until('Knock is enabled once a name is typed', async () => ({ok: !(await knockDisabled())}))
       await popC.evaluate(roomName => [...document.querySelectorAll('.room-row')].find(row => row.textContent.includes(roomName)).querySelector('button').click(), roomName)
       await until('both members receive the knock under the typed name', async () => {
