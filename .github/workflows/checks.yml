@@ -16,6 +16,15 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Directory tests
+        run: npm ci --prefix server && npm test --prefix server
+
       - name: Package
         run: scripts/package.sh
 

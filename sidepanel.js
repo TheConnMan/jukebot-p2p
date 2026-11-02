@@ -7,6 +7,7 @@ let userId = null
 let lastTyping = 0
 let shownLog = ''
 let shownQueue = ''
+let shownKnocks = ''
 
 const bg = msg => chrome.runtime.sendMessage({to: 'bg', ...msg})
 const offscreen = msg => chrome.runtime.sendMessage({to: 'offscreen', ...msg})
@@ -101,6 +102,27 @@ function renderQueue(state) {
   $('skip').disabled = queue.length === 0
 }
 
+function renderKnocks(knocks, count) {
+  const key = JSON.stringify([knocks, count])
+  if (key === shownKnocks) return
+  shownKnocks = key
+  $('knocks').replaceChildren(...knocks.map(knock => {
+    const card = el('div', 'knock')
+    card.dataset.id = knock.id
+    const title = el('div')
+    title.append(person(knock.name, knock.peerId, false), ' wants to join')
+    const buttons = el('div', 'row')
+    const admit = el('button', 'primary', 'Let in')
+    admit.disabled = count >= 12
+    admit.onclick = () => offscreen({type: 'answer', id: knock.id, accept: true})
+    const decline = el('button', '', 'Decline')
+    decline.onclick = () => offscreen({type: 'answer', id: knock.id, accept: false})
+    buttons.append(admit, decline)
+    card.append(title, el('div', 'meta', `Knocked from Public rooms · ${count}/12 here`), buttons)
+    return card
+  }))
+}
+
 async function refresh() {
   status = await bg({type: 'status'})
   const inRoom = Boolean(status?.roomId)
@@ -116,6 +138,7 @@ async function refresh() {
     $('now-title').textContent = s?.v ? `Now: ${s.title || s.v}` : 'Now: waiting for the room'
     $('now-clock').textContent = !s?.v ? '' : `${known(s.duration) ? `${clock(position(s))} / ${clock(s.duration)}` : ''}${s.playing ? '' : ' paused'}`.trim()
   }
+  renderKnocks(inRoom ? status.knocks : [], (status?.peers ?? 0) + 1)
   renderQueue(inRoom ? status.state : null)
   renderLog(status?.chat ?? [], inRoom)
   const typing = inRoom ? status.typing : []
@@ -178,7 +201,7 @@ for (const [id, key] of [['notify-chat', 'notifyChat'], ['notify-songs', 'notify
 }
 
 chrome.runtime.onMessage.addListener(msg => {
-  if (msg.type === 'chat' || msg.type === 'typing' || msg.type === 'push') refresh()
+  if (msg.type === 'chat' || msg.type === 'typing' || msg.type === 'push' || msg.type === 'knocks') refresh()
   if (msg.type === 'typing') setTimeout(refresh, 4100)
 })
 

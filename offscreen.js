@@ -18,6 +18,7 @@
 
 import {joinRoom, selfId} from './vendor/trystero.js'
 import {lookup, validId} from './youtube.js'
+import {PublicRooms} from './public-rooms.js'
 
 const APP_ID = 'jukebot-p2p'
 const CHAT_KEEP = 200
@@ -33,6 +34,7 @@ let actions = null
 let roomId = null
 let tabId = null
 let state = null
+let roomSettings = {public: false, name: '', lobby: '', key: ''}
 let chat = []
 let profile = {userId: '', name: ''}
 const members = new Map() // peerId -> {userId, name}
@@ -71,6 +73,10 @@ function cleanItem(item, i) {
 function cleanState(s) {
   if (!validId(s?.v) || (!Number.isSafeInteger(s.rev) || s.rev < 0) || typeof s.by !== 'string') return null
   return {
+    public: s.public === true && /^[a-zA-Z0-9_-]{24,80}$/.test(s.lobby) && /^[a-zA-Z0-9_-]{24,80}$/.test(s.key),
+    lobby: str(s.lobby, 80),
+    key: str(s.key, 80),
+    name: str(s.name, 80),
     v: s.v,
     title: str(s.title, 200),
     duration: num(s.duration),
@@ -83,12 +89,13 @@ function cleanState(s) {
 }
 
 function push() {
+  publicRooms.sync()
   chrome.runtime.sendMessage({to: 'bg', type: 'push', roomId, tabId, state, peers: members.size}).catch(() => {})
 }
 
 const nudge = type => chrome.runtime.sendMessage({to: 'chat', type}).catch(() => {})
 
-function join(id, tab, who, own) {
+function join(id, tab, who, own, settings) {
   for (const [id, key] of own) ownMessages.set(id, key)
   if (who) profile = who
   if (room && id === roomId) {
@@ -100,11 +107,17 @@ function join(id, tab, who, own) {
   leave()
   roomId = id
   tabId = tab
+  roomSettings = {public: settings?.public === true, name: str(settings?.name, 80), lobby: crypto.randomUUID(), key: crypto.randomUUID()}
   // The room id doubles as the password, so signaling data on the public
   // relays is encrypted with a secret only invite holders know.
   room = joinRoom({appId: APP_ID, password: id, maxReceiveBytes: RECEIVE_MAX}, id)
   const make = name => room.makeAction(name, {onReceive: ({byteLength}) => byteLength <= RECEIVE_MAX})
-  actions = {state: make('state'), chat: make('chat'), history: make('history'), hello: make('hello'), typing: make('typing')}
+  actions = {state: make('state'), chat: make('chat'), history: make('history'), hello: make('hello'), typing: make('typing'), answer: make('answer'), decision: make('decision')}
+
+  actions.answer.onMessage = (data, {peerId}) => publicRooms.decide(data, members.get(peerId) ?? {name: 'someone', userId: ''})
+  actions.decision.onMessage = (data, {peerId}) => {
+    if (peerId === publicRooms.leader()) publicRooms.resolve(data)
+  }
 
   actions.state.onMessage = (data, {peerId}) => {
     const s = cleanState({...data, by: peerId})
@@ -141,6 +154,7 @@ function join(id, tab, who, own) {
     nudge('typing')
   }
   room.onPeerJoin = peerId => {
+    publicRooms.sync()
     actions.hello.send(profile, {target: peerId})
     if (state) actions.state.send(wire(state), {target: peerId})
     const history = chat.filter(m => !m.local).slice(-CHAT_HISTORY)
@@ -155,6 +169,8 @@ function join(id, tab, who, own) {
 }
 
 function leave() {
+  const cleanup = publicRooms.stop(Object.keys(room?.getPeers() ?? {}).length === 0)
+  publicRooms.cancel()
   generation++
   room?.leave()
   room = actions = roomId = tabId = state = null
@@ -164,6 +180,8 @@ function leave() {
   typing.clear()
   presenceAt.clear()
   clearTimeout(seekTimer)
+  roomSettings = {public: false, name: '', lobby: '', key: ''}
+  return cleanup
 }
 
 function addChat(msgs, live, own = false, local = false) {
@@ -260,7 +278,7 @@ function update(patch, reason) {
   if (fresh && !('title' in patch)) Object.assign(patch, {title: '', duration: null})
   // A patch without pos (queue or title edits) keeps playback where it is.
   const pos = 'pos' in patch ? patch.pos : old ? position(old) : 0
-  const next = cleanState({queue: [], ...state, ...patch, pos, rev: (state?.rev ?? 0) + 1, by: selfId})
+  const next = cleanState({queue: [], ...roomSettings, ...state, ...patch, pos, rev: (state?.rev ?? 0) + 1, by: selfId})
   if (!next) return false
   state = {...next, at: Date.now()}
   const qids = new Set(state.queue.map(q => q.qid))
@@ -311,11 +329,29 @@ function status() {
     state,
     peers: members.size,
     selfId,
+    knocks: [...publicRooms.knocks.values()],
+    knocking: publicRooms.visitor,
     chat,
     members: [{...profile, self: true}, ...members.values()],
     typing: [...typing].filter(([, t]) => now - t < TYPING_FOR).map(([peerId]) => ({name: nameOf(peerId), userId: members.get(peerId)?.userId ?? ''}))
   }
 }
+
+const publicRooms = new PublicRooms(
+  () => ({roomId, state, profile, peers: Object.keys(room?.getPeers() ?? {})}),
+  (data, leader) => {
+    if (leader === selfId) publicRooms.decide(data, profile)
+    else actions.answer.send(data, {target: leader})
+  },
+  (code, tabId, landing) => chrome.runtime.sendMessage({to: 'bg', type: 'admitted', code, tabId, ...landing}).catch(() => {}),
+  (text, actor) => {
+    const m = {...entry(text, {kind: 'event', tag: 'admit'}), by: actor.userId, name: actor.name}
+    addChat([m], false, actor.userId === profile.userId)
+    actions.chat.send([m])
+  },
+  () => chrome.runtime.sendMessage({to: 'bg', type: 'site'})
+)
+publicRooms.broadcast = data => actions.decision.send(data)
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg.to !== 'offscreen') return false
@@ -326,11 +362,24 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (['hello', 'update'].includes(msg.type) ? !fromRoomTab : !fromExtension) return false
   switch (msg.type) {
     case 'join':
-      join(msg.roomId, msg.tabId, msg.profile, msg.ownMessages)
+      join(msg.roomId, msg.tabId, msg.profile, msg.ownMessages, msg.settings)
       reply(status())
       break
     case 'leave':
-      leave()
+      leave().then(() => reply(true))
+      return true
+    case 'public':
+      reply(room && state ? update({public: msg.public === true, lobby: state.lobby || crypto.randomUUID(), key: state.key || crypto.randomUUID()}, 'meta') : false)
+      break
+    case 'answer':
+      reply(publicRooms.answer(msg.id, msg.accept))
+      break
+    case 'knock':
+      if (!room) profile = msg.profile
+      reply(!room && publicRooms.knock(msg.listing, profile, msg.tabId))
+      break
+    case 'cancelKnock':
+      publicRooms.cancel()
       reply(true)
       break
     case 'status':

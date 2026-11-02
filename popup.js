@@ -1,10 +1,12 @@
 import {videoId as watchVid} from './youtube.js'
+import {directory} from './directory.js'
 
 const $ = id => document.getElementById(id)
 const HOSTS = ['www.youtube.com', 'music.youtube.com']
 
 let tab = null
 let status = null
+let roomsLoaded = false
 
 const bg = msg => chrome.runtime.sendMessage({to: 'bg', ...msg})
 
@@ -32,15 +34,26 @@ function showError(text) {
 
 async function render() {
   const inRoom = Boolean(status?.roomId)
-  $('out').hidden = inRoom
+  const knocking = status?.knocking
+  const waiting = !inRoom && ['waiting', 'joining'].includes(knocking?.phase)
+  const declined = !inRoom && knocking?.phase === 'failed'
+  $('waiting').hidden = !waiting
+  $('declined').hidden = !declined
+  $('out').hidden = inRoom || waiting || declined
   $('in').hidden = !inRoom
   const pill = $('pill')
   if (!inRoom) {
     pill.className = 'pill'
-    pill.textContent = 'no room'
+    pill.textContent = waiting ? 'knocking' : 'no room'
+    pill.className = waiting ? 'pill live' : 'pill'
+    if (waiting) {
+      $('waiting-room').textContent = `Waiting for someone in ${knocking.name} to let you in.`
+      $('waiting-name').textContent = `${knocking.count} people are here. They see your name: ${knocking.visitorName}.`
+    }
+    if (!waiting && !declined && !roomsLoaded) loadRooms()
     const canStart = Boolean(watchVid(tab?.url))
     $('start').hidden = !canStart
-    $('room-name').hidden = !canStart
+    $('room-name').hidden = $('start-public').hidden = !canStart
     $('start-hint').hidden = canStart
     return
   }
@@ -51,6 +64,12 @@ async function render() {
   const host = roomTab ? new URL(roomTab.url).host : 'music.youtube.com'
   $('link').value = `https://${host}/#jukebot=${roomId}`
   $('where').textContent = tabId === tab?.id ? 'This tab plays for the room.' : `The room plays in another tab: ${roomTab?.title ?? 'closed'}`
+  $('public').checked = state?.public === true
+  $('public').disabled = !state
+  $('public-label').textContent = state?.public ? 'Listed' : 'Private'
+  $('public-note').textContent = state?.public
+    ? `Listed in Public rooms. People must knock to join. ${peers + 1}/12 here. Invite links still work without a knock.`
+    : 'Private. Only people with an invite link or room code can join.'
   const queue = state?.queue ?? []
   $('queue').replaceChildren(...queue.map((item, i) => {
     const li = document.createElement('li')
@@ -81,7 +100,7 @@ async function refresh() {
 }
 
 $('start').onclick = async () => {
-  const r = await bg({type: 'join', roomId: newRoomId($('room-name').value), tabId: tab.id})
+  const r = await bg({type: 'join', roomId: newRoomId($('room-name').value), tabId: tab.id, settings: {public: $('list-publicly').checked, name: $('room-name').value.trim()}})
   if (r?.error) return showError(r.error)
   await chrome.tabs.sendMessage(tab.id, {type: 'start', roomId: r.roomId}).catch(() => showError('Reload the YouTube tab, then try again.'))
   setTimeout(refresh, 200)
@@ -126,13 +145,77 @@ $('leave').onclick = async () => {
   await refresh()
 }
 
+// Knock needs a name the members can read, and a full room never takes one.
+function syncKnock() {
+  const named = $('my-name').value.trim() !== ''
+  for (const button of document.querySelectorAll('#rooms button.knock')) button.disabled = button.dataset.full === 'true' || !named
+}
+
+async function loadRooms() {
+  roomsLoaded = true
+  $('refresh-rooms').disabled = true
+  try {
+    const rooms = await directory('/rooms')
+    $('rooms').replaceChildren(...rooms.map(room => {
+      const li = document.createElement('li')
+      li.className = 'room-row'
+      const body = document.createElement('div')
+      body.className = 'room'
+      const name = document.createElement('div')
+      name.className = 'one'
+      name.textContent = room.name
+      const title = document.createElement('div')
+      title.className = 'one np'
+      title.textContent = `Now: ${room.title || 'waiting for a song'}`
+      body.append(name, title)
+      const count = document.createElement('span')
+      count.className = `count${room.count >= 12 ? ' full' : ''}`
+      count.textContent = `${room.count}/12`
+      const button = document.createElement('button')
+      button.className = 'knock'
+      button.textContent = room.count >= 12 ? 'Full' : 'Knock'
+      button.dataset.full = room.count >= 12
+      button.onclick = async () => {
+        await bg({type: 'setName', name: $('my-name').value})
+        const ok = await bg({type: 'knock', listing: room, tabId: tab.id})
+        if (ok !== true) showError(ok?.error || 'Unable to knock. Refresh and try again.')
+        await refresh()
+      }
+      li.append(body, count, button)
+      return li
+    }))
+    syncKnock()
+    $('rooms-note').textContent = rooms.length ? 'Someone in the room lets you in. Updated just now.' : 'No public rooms right now. Start one above.'
+  } catch (error) {
+    $('rooms-note').textContent = error.message
+  } finally {
+    $('refresh-rooms').disabled = false
+  }
+}
+
+$('refresh-rooms').onclick = loadRooms
+$('my-name').oninput = syncKnock
+$('my-name').onchange = () => {
+  if ($('my-name').value.trim()) bg({type: 'setName', name: $('my-name').value})
+}
+$('public').onchange = async () => {
+  await chrome.runtime.sendMessage({to: 'offscreen', type: 'public', public: $('public').checked})
+  await refresh()
+}
+for (const id of ['cancel-knock', 'back-rooms']) $(id).onclick = async () => {
+  await chrome.runtime.sendMessage({to: 'offscreen', type: 'cancelKnock'})
+  roomsLoaded = false
+  await refresh()
+}
+
 chrome.runtime.onMessage.addListener(msg => {
-  if (msg.to === 'bg' && msg.type === 'push') refresh()
+  if ((msg.to === 'bg' && msg.type === 'push') || msg.type === 'knocks') refresh()
 })
 
 window.newRoomId = newRoomId
 
-chrome.tabs.query({active: true, currentWindow: true}).then(([t]) => {
+Promise.all([chrome.tabs.query({active: true, currentWindow: true}), bg({type: 'profile'})]).then(([[t], profile]) => {
   tab = t
+  $('my-name').value = profile?.name ?? ''
   return refresh()
 })

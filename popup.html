@@ -40,6 +40,20 @@
   .num{font-variant-numeric:tabular-nums;color:var(--dim2);width:18px}
   li span.num{flex:0 0 18px}
   li span.by{flex:0 1 auto;max-width:30%;color:var(--dim2);font-size:11px}
+  .lhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .lhead .label{margin:0}
+  .toggle{display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer}
+  .toggle input{appearance:none;flex:0 0 28px;width:28px;height:16px;position:relative;padding:0;margin:0;border-radius:2px}
+  .toggle input::after{content:'';position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:1px;background:var(--dim2)}
+  .toggle input:checked{border-color:var(--acc);background:var(--acc-tint)}
+  .toggle input:checked::after{left:14px;background:var(--acc)}
+  .note{font-size:11px;color:var(--dim);margin:4px 0 10px}
+  .room{flex:1;min-width:0}
+  .one{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .room .np{font-size:11px;color:var(--dim2)}
+  .count{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;flex:0 0 auto}
+  .count.full{color:var(--bad)}
+  li.room-row{padding:6px 0;gap:8px}
   [hidden]{display:none!important}
 </style>
 </head>
@@ -49,11 +63,19 @@
   <span id="pill" class="pill">no room</span>
 </header>
 
+<section>
+  <label class="row"><span class="label" style="margin:0">Your name</span><input id="my-name" maxlength="40" placeholder="Others in the room see this"></label>
+</section>
+
 <div id="out" hidden>
   <section>
     <div class="label">Start</div>
     <p id="start-hint" class="dim" style="margin:0 0 8px">Open a video on YouTube or YouTube Music, then start a room from that tab.</p>
     <input id="room-name" placeholder="Room name (optional)" style="width:100%;margin:0 0 8px" hidden>
+    <div id="start-public" hidden>
+      <label class="toggle"><input id="list-publicly" type="checkbox">List publicly</label>
+      <p class="note">Shows in Public rooms. Anyone with JukeBot can knock, and anyone in the room can let them in. Up to 12 people. Invite links still skip the knock.</p>
+    </div>
     <button id="start" class="primary" hidden>Start a room here</button>
   </section>
   <section>
@@ -62,6 +84,26 @@
       <input id="invite" placeholder="Invite link or room code">
       <button id="join">Join</button>
     </div>
+  </section>
+  <section>
+    <div class="lhead"><span class="label">Public rooms</span><button id="refresh-rooms" class="x">refresh</button></div>
+    <ol id="rooms"></ol>
+    <p id="rooms-note" class="note">Loading public rooms...</p>
+  </section>
+</div>
+
+<div id="waiting" hidden>
+  <section>
+    <div class="label">Knocking</div>
+    <p id="waiting-room"></p>
+    <p id="waiting-name" class="note"></p>
+    <button id="cancel-knock">Cancel</button>
+  </section>
+</div>
+<div id="declined" hidden>
+  <section>
+    <p class="err">Nobody let you in. Try again later.</p>
+    <button id="back-rooms">Back to Public rooms</button>
   </section>
 </div>
 
@@ -73,6 +115,10 @@
       <button id="copy">Copy</button>
     </div>
     <p id="where" class="dim" style="margin:8px 0 0"></p>
+  </section>
+  <section>
+    <div class="lhead"><span class="label">Public</span><label class="toggle"><span id="public-label" class="dim">Private</span><input id="public" type="checkbox" aria-label="List room publicly"></label></div>
+    <p id="public-note" class="note" style="margin-bottom:0"></p>
   </section>
   <section>
     <div class="label">Up next</div>

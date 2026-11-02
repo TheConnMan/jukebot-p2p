@@ -9,7 +9,7 @@ import {videoId} from './youtube.js'
 const AMBER = '#efb146'
 const RED = '#fb794a'
 const SONG_TAGS = ['add', 'play']
-const PEOPLE_TAGS = ['join', 'leave', 'rename']
+const PEOPLE_TAGS = ['join', 'leave', 'rename', 'knock']
 
 let creating = null
 const panels = new Set() // open side panel ports; while any is open, chat counts as read
@@ -46,14 +46,34 @@ async function status() {
   return toOffscreen({type: 'status'})
 }
 
-async function join(roomId, tabId) {
+async function join(roomId, tabId, settings) {
   await ensureOffscreen()
   const before = await status()
   if (before?.roomId !== roomId) await chrome.storage.session.set({unread: 0})
   // Only one tab plays for the room; the one it moves away from stops syncing.
   if (before?.tabId != null && before.tabId !== tabId) chrome.tabs.sendMessage(before.tabId, {type: 'left'}).catch(() => {})
   const {ownMessages = []} = await chrome.storage.session.get('ownMessages')
-  return toOffscreen({type: 'join', roomId, tabId, profile: await profile(), ownMessages})
+  return toOffscreen({type: 'join', roomId, tabId, profile: await profile(), ownMessages, settings})
+}
+
+// Navigate a tab and resolve once the new page has started loading (or after 10 seconds).
+function openWatch(tabId, url) {
+  const want = new URL(url)
+  return new Promise(resolve => {
+    const done = () => {
+      chrome.tabs.onUpdated.removeListener(listener)
+      clearTimeout(timer)
+      resolve()
+    }
+    const listener = (id, info, tab) => {
+      if (id !== tabId || (!info.url && info.status !== 'loading')) return
+      const now = new URL(tab.url ?? 'about:blank')
+      if (now.host === want.host && now.pathname === want.pathname && now.searchParams.get('v') === want.searchParams.get('v')) done()
+    }
+    const timer = setTimeout(done, 10000)
+    chrome.tabs.onUpdated.addListener(listener)
+    chrome.tabs.update(tabId, {url}).catch(done)
+  })
 }
 
 async function leave(expectedTabId) {
@@ -122,7 +142,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   const fromExtension = sender.id === chrome.runtime.id && (sender.url ?? '').startsWith(chrome.runtime.getURL(''))
   const fromOffscreen = fromExtension && sender.url === chrome.runtime.getURL('offscreen.html')
   const fromTab = sender.frameId === 0 && sender.tab && /^https:\/\/(www\.youtube\.com|music\.youtube\.com)\//.test(sender.url ?? '')
-  if (['push', 'incoming', 'authored'].includes(msg.type) ? !fromOffscreen : msg.type === 'join' ? !(fromExtension || fromTab) : !fromExtension) return false
+  if (['push', 'incoming', 'authored', 'admitted'].includes(msg.type) ? !fromOffscreen : msg.type === 'join' ? !(fromExtension || fromTab) : !fromExtension) return false
   if (msg.type === 'authored') {
     chrome.storage.session.set({ownMessages: msg.messages})
     return false
@@ -137,10 +157,31 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
   const tabId = fromTab ? sender.tab.id : msg.tabId
   const work = {
-    join: () => join(msg.roomId, tabId),
+    join: () => join(msg.roomId, tabId, fromExtension ? msg.settings : undefined),
+    knock: async () => {
+      await ensureOffscreen()
+      return toOffscreen({type: 'knock', listing: msg.listing, tabId, profile: await profile()})
+    },
+    // Letting someone in was the confirmation, so join here instead of through
+    // an invite link: open the room's video where the room plays it, and join
+    // once that page has committed. Joining first would let the old page's
+    // content script follow the room and navigate away from the new URL.
+    admitted: async () => {
+      await chrome.tabs.get(tabId)
+      await openWatch(tabId, `https://${msg.site}/watch?v=${encodeURIComponent(msg.v)}&t=${Math.floor(msg.t)}s`)
+      return join(msg.code, tabId)
+    },
+    // The site the room's tab is on, for a visitor who is being let in.
+    site: async () => {
+      const s = await status()
+      const tab = s?.tabId != null ? await chrome.tabs.get(s.tabId).catch(() => null) : null
+      const host = tab?.url ? new URL(tab.url).host : ''
+      return ['www.youtube.com', 'music.youtube.com'].includes(host) ? host : 'www.youtube.com'
+    },
     leave,
     status,
     profile,
+    directoryConfig: () => chrome.storage.local.get('directoryUrl'),
     setName: () => setName(msg.name),
     add: () => add(msg.url)
   }[msg.type]
