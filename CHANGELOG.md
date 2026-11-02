@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+Optional public rooms. List a room publicly, browse current rooms and knock to ask to join. Any member can let a visitor in, decline or switch the room back to private. Knocks appear above side-panel chat and use the people notification switch; admission posts an activity line. Public admission is capped at 12 people. Invite links and room codes still join directly.
+
+The new Cloudflare directory lists only a separate lobby code, room name, current song and head count. Listings heartbeat every minute and expire after three minutes. Private rooms send nothing to the directory. No new extension permission is required. The server has SQLite-backed tests in CI.
+
 ## 0.4.0
 
 Rooms can have a name. The name becomes the start of the room code, followed by random characters, so the code stays unguessable. Invite links no longer need a video in them: the link is the YouTube or YouTube Music home page plus the room code, and it is shown as soon as the room exists. Opening that link joins the room and then opens the room's video. Older invite links that include a video still work.

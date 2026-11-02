@@ -9,7 +9,7 @@ import {videoId} from './youtube.js'
 const AMBER = '#efb146'
 const RED = '#fb794a'
 const SONG_TAGS = ['add', 'play']
-const PEOPLE_TAGS = ['join', 'leave', 'rename']
+const PEOPLE_TAGS = ['join', 'leave', 'rename', 'knock']
 
 let creating = null
 const panels = new Set() // open side panel ports; while any is open, chat counts as read
@@ -46,14 +46,14 @@ async function status() {
   return toOffscreen({type: 'status'})
 }
 
-async function join(roomId, tabId) {
+async function join(roomId, tabId, settings) {
   await ensureOffscreen()
   const before = await status()
   if (before?.roomId !== roomId) await chrome.storage.session.set({unread: 0})
   // Only one tab plays for the room; the one it moves away from stops syncing.
   if (before?.tabId != null && before.tabId !== tabId) chrome.tabs.sendMessage(before.tabId, {type: 'left'}).catch(() => {})
   const {ownMessages = []} = await chrome.storage.session.get('ownMessages')
-  return toOffscreen({type: 'join', roomId, tabId, profile: await profile(), ownMessages})
+  return toOffscreen({type: 'join', roomId, tabId, profile: await profile(), ownMessages, settings})
 }
 
 async function leave(expectedTabId) {
@@ -122,7 +122,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   const fromExtension = sender.id === chrome.runtime.id && (sender.url ?? '').startsWith(chrome.runtime.getURL(''))
   const fromOffscreen = fromExtension && sender.url === chrome.runtime.getURL('offscreen.html')
   const fromTab = sender.frameId === 0 && sender.tab && /^https:\/\/(www\.youtube\.com|music\.youtube\.com)\//.test(sender.url ?? '')
-  if (['push', 'incoming', 'authored'].includes(msg.type) ? !fromOffscreen : msg.type === 'join' ? !(fromExtension || fromTab) : !fromExtension) return false
+  if (['push', 'incoming', 'authored', 'admitted'].includes(msg.type) ? !fromOffscreen : msg.type === 'join' ? !(fromExtension || fromTab) : !fromExtension) return false
   if (msg.type === 'authored') {
     chrome.storage.session.set({ownMessages: msg.messages})
     return false
@@ -137,10 +137,20 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
   const tabId = fromTab ? sender.tab.id : msg.tabId
   const work = {
-    join: () => join(msg.roomId, tabId),
+    join: () => join(msg.roomId, tabId, fromExtension ? msg.settings : undefined),
+    knock: async () => {
+      await ensureOffscreen()
+      return toOffscreen({type: 'knock', listing: msg.listing, tabId, profile: await profile()})
+    },
+    admitted: async () => {
+      const tab = await chrome.tabs.get(tabId)
+      const host = /^https:\/\/(www\.youtube\.com|music\.youtube\.com)\//.test(tab.url) ? new URL(tab.url).host : 'music.youtube.com'
+      return chrome.tabs.update(tabId, {url: `https://${host}/#jukebot=${encodeURIComponent(msg.code)}`})
+    },
     leave,
     status,
     profile,
+    directoryConfig: () => chrome.storage.local.get('directoryUrl'),
     setName: () => setName(msg.name),
     add: () => add(msg.url)
   }[msg.type]

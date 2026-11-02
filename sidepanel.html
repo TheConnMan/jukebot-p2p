@@ -60,6 +60,10 @@
   button:disabled{color:var(--dim2);border-color:var(--line);cursor:default}
   .toggles{display:flex;gap:12px;align-items:center;padding:6px 12px;border-top:1px solid var(--line2);font-size:11px;color:var(--dim)}
   .toggles label{display:flex;gap:4px;align-items:center;cursor:pointer}
+  #knocks{flex:0 0 auto;max-height:30vh;overflow-y:auto}
+  .knock{padding:10px 12px;border-bottom:1px solid var(--line)}
+  .knock .meta{font-size:11px;color:var(--dim2);margin:2px 0 8px}
+  .knock .row{display:flex;gap:6px}
   [hidden]{display:none!important}
 </style>
 </head>
@@ -86,6 +90,7 @@
   <div id="error" hidden></div>
 </section>
 
+<div id="knocks"></div>
 <div id="log"></div>
 <div id="typing"></div>
 <form id="form">

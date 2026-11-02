@@ -14,6 +14,8 @@ SHIPPED=(
   sidepanel.html
   sidepanel.js
   youtube.js
+  directory.js
+  public-rooms.js
   vendor/trystero.js
   icon16.png
   icon48.png
