@@ -343,12 +343,13 @@ const publicRooms = new PublicRooms(
     if (leader === selfId) publicRooms.decide(data, profile)
     else actions.answer.send(data, {target: leader})
   },
-  (code, tabId) => chrome.runtime.sendMessage({to: 'bg', type: 'admitted', code, tabId}).catch(() => {}),
+  (code, tabId, landing) => chrome.runtime.sendMessage({to: 'bg', type: 'admitted', code, tabId, ...landing}).catch(() => {}),
   (text, actor) => {
     const m = {...entry(text, {kind: 'event', tag: 'admit'}), by: actor.userId, name: actor.name}
     addChat([m], false, actor.userId === profile.userId)
     actions.chat.send([m])
-  }
+  },
+  () => chrome.runtime.sendMessage({to: 'bg', type: 'site'})
 )
 publicRooms.broadcast = data => actions.decision.send(data)
 

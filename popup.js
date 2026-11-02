@@ -145,6 +145,12 @@ $('leave').onclick = async () => {
   await refresh()
 }
 
+// Knock needs a name the members can read, and a full room never takes one.
+function syncKnock() {
+  const named = $('visitor-name').value.trim() !== ''
+  for (const button of document.querySelectorAll('#rooms button.knock')) button.disabled = button.dataset.full === 'true' || !named
+}
+
 async function loadRooms() {
   roomsLoaded = true
   $('refresh-rooms').disabled = true
@@ -166,9 +172,11 @@ async function loadRooms() {
       count.className = `count${room.count >= 12 ? ' full' : ''}`
       count.textContent = `${room.count}/12`
       const button = document.createElement('button')
+      button.className = 'knock'
       button.textContent = room.count >= 12 ? 'Full' : 'Knock'
-      button.disabled = room.count >= 12
+      button.dataset.full = room.count >= 12
       button.onclick = async () => {
+        await bg({type: 'setName', name: $('visitor-name').value})
         const ok = await bg({type: 'knock', listing: room, tabId: tab.id})
         if (ok !== true) showError(ok?.error || 'Unable to knock. Refresh and try again.')
         await refresh()
@@ -176,6 +184,7 @@ async function loadRooms() {
       li.append(body, count, button)
       return li
     }))
+    syncKnock()
     $('rooms-note').textContent = rooms.length ? 'Someone in the room lets you in. Updated just now.' : 'No public rooms right now. Start one above.'
   } catch (error) {
     $('rooms-note').textContent = error.message
@@ -185,6 +194,7 @@ async function loadRooms() {
 }
 
 $('refresh-rooms').onclick = loadRooms
+$('visitor-name').oninput = syncKnock
 $('public').onchange = async () => {
   await chrome.runtime.sendMessage({to: 'offscreen', type: 'public', public: $('public').checked})
   await refresh()
@@ -201,7 +211,8 @@ chrome.runtime.onMessage.addListener(msg => {
 
 window.newRoomId = newRoomId
 
-chrome.tabs.query({active: true, currentWindow: true}).then(([t]) => {
+Promise.all([chrome.tabs.query({active: true, currentWindow: true}), bg({type: 'profile'})]).then(([[t], profile]) => {
   tab = t
+  $('visitor-name').value = profile?.name ?? ''
   return refresh()
 })

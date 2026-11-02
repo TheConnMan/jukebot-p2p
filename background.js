@@ -56,6 +56,26 @@ async function join(roomId, tabId, settings) {
   return toOffscreen({type: 'join', roomId, tabId, profile: await profile(), ownMessages, settings})
 }
 
+// Navigate a tab and resolve once the new page has started loading (or after 10 seconds).
+function openWatch(tabId, url) {
+  const want = new URL(url)
+  return new Promise(resolve => {
+    const done = () => {
+      chrome.tabs.onUpdated.removeListener(listener)
+      clearTimeout(timer)
+      resolve()
+    }
+    const listener = (id, info, tab) => {
+      if (id !== tabId || (!info.url && info.status !== 'loading')) return
+      const now = new URL(tab.url ?? 'about:blank')
+      if (now.host === want.host && now.pathname === want.pathname && now.searchParams.get('v') === want.searchParams.get('v')) done()
+    }
+    const timer = setTimeout(done, 10000)
+    chrome.tabs.onUpdated.addListener(listener)
+    chrome.tabs.update(tabId, {url}).catch(done)
+  })
+}
+
 async function leave(expectedTabId) {
   const s = await status()
   if (!s || (expectedTabId != null && s.tabId !== expectedTabId)) return
@@ -142,10 +162,21 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       await ensureOffscreen()
       return toOffscreen({type: 'knock', listing: msg.listing, tabId, profile: await profile()})
     },
+    // Letting someone in was the confirmation, so join here instead of through
+    // an invite link: open the room's video where the room plays it, and join
+    // once that page has committed. Joining first would let the old page's
+    // content script follow the room and navigate away from the new URL.
     admitted: async () => {
-      const tab = await chrome.tabs.get(tabId)
-      const host = /^https:\/\/(www\.youtube\.com|music\.youtube\.com)\//.test(tab.url) ? new URL(tab.url).host : 'music.youtube.com'
-      return chrome.tabs.update(tabId, {url: `https://${host}/#jukebot=${encodeURIComponent(msg.code)}`})
+      await chrome.tabs.get(tabId)
+      await openWatch(tabId, `https://${msg.site}/watch?v=${encodeURIComponent(msg.v)}&t=${Math.floor(msg.t)}s`)
+      return join(msg.code, tabId)
+    },
+    // The site the room's tab is on, for a visitor who is being let in.
+    site: async () => {
+      const s = await status()
+      const tab = s?.tabId != null ? await chrome.tabs.get(s.tabId).catch(() => null) : null
+      const host = tab?.url ? new URL(tab.url).host : ''
+      return ['www.youtube.com', 'music.youtube.com'].includes(host) ? host : 'www.youtube.com'
     },
     leave,
     status,

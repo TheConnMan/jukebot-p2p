@@ -1,6 +1,8 @@
 import {joinRoom, selfId} from './vendor/trystero.js'
 import {directory} from './directory.js'
+import {validId} from './youtube.js'
 
+const SITES = ['www.youtube.com', 'music.youtube.com']
 const LIMIT = 12
 const KNOCK_FOR = 2 * 60 * 1000
 const code = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{24,80}$/.test(value)
@@ -12,8 +14,9 @@ function lobbyRoom(id) {
 }
 
 export class PublicRooms {
-  constructor(current, answer, admitted, activity) {
+  constructor(current, answer, admitted, activity, site) {
     this.current = current
+    this.site = site
     this.sendAnswer = answer
     this.admitted = admitted
     this.activity = activity
@@ -118,8 +121,20 @@ export class PublicRooms {
     const decision = {id: knock.id, accept: data.accept === true, name: knock.name, actor}
     this.resolve({...decision, peerId: knock.peerId})
     this.broadcast({...decision, peerId: knock.peerId})
-    this.replyAction.send({id: knock.id, code: decision.accept ? this.current().roomId : null}, {target: knock.peerId}).catch(() => {})
+    this.reply(knock, decision.accept)
     if (decision.accept) this.activity(`${actor.name} let ${knock.name} in`, actor)
+  }
+
+  // The visitor gets what it needs to land on the room's video: the code, the
+  // current video and position, and the site (www or music) the room plays on.
+  async reply(knock, accept) {
+    const action = this.replyAction
+    if (!accept) return action.send({id: knock.id, code: null}, {target: knock.peerId}).catch(() => {})
+    const site = await this.site()
+    const {roomId, state} = this.current()
+    if (!state) return
+    const t = state.pos + (state.playing ? (Date.now() - state.at) / 1000 : 0)
+    return action.send({id: knock.id, code: roomId, v: state.v, site, t}, {target: knock.peerId}).catch(() => {})
   }
 
   resolve(data) {
@@ -149,9 +164,9 @@ export class PublicRooms {
     this.visitorRoom.onPeerJoin = peerId => knock.send({id, name: profile.name}, {target: peerId}).catch(() => {})
     reply.onMessage = data => {
       if (this.visitor?.id !== id || this.visitor.phase !== 'waiting' || data?.id !== id) return
-      const valid = typeof data.code === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(data.code)
+      const valid = typeof data.code === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(data.code) && validId(data.v) && SITES.includes(data.site) && Number.isFinite(data.t) && data.t >= 0
       this.finishKnock(valid ? 'joining' : 'failed')
-      if (valid) this.admitted(data.code, tabId)
+      if (valid) this.admitted(data.code, tabId, {v: data.v, site: data.site, t: data.t})
     }
     this.visitorTimer = setTimeout(() => this.finishKnock('failed'), KNOCK_FOR)
     notify()

@@ -121,16 +121,21 @@ async function publicScenario() {
   const A = await launch()
   const B = await launch()
   const C = await launch()
+  let dialogs = 0
+  C.page.on('dialog', () => dialogs++)
   const popA = await extensionPage(A.browser)
   const popB = await extensionPage(B.browser)
   const popC = await extensionPage(C.browser)
+  await bgCall(popA, {type: 'setName', name: 'alice'})
+  await bgCall(popB, {type: 'setName', name: 'bob'})
+  await bgCall(popC, {type: 'setName', name: 'sam'})
   await C.page.bringToFront()
   await popC.reload()
   await popC.waitForFunction(() => !document.querySelector('#out').hidden)
   await popC.bringToFront()
-  await bgCall(popA, {type: 'setName', name: 'alice'})
-  await bgCall(popB, {type: 'setName', name: 'bob'})
-  await bgCall(popC, {type: 'setName', name: 'sam'})
+  const prefilled = await popC.$eval('#visitor-name', el => el.value)
+  if (prefilled !== 'sam') throw new Error(`FAIL name field is not prefilled from the stored name: ${prefilled}`)
+  console.log('ok   name field is prefilled from the stored name')
   const directoryCall = (pop, path, options) => pop.evaluate(async ({path, options}) => {
     const {directory} = await import('./directory.js')
     return directory(path, options)
@@ -177,20 +182,27 @@ async function publicScenario() {
       const listing = listings.find(r => r.lobby === publicLobby)
       return {ok: listing?.count === 2 && listing.name === roomName && Object.keys(listing).sort().join() === 'count,lobby,name,title', info: listing}
     })
-    const knock = async () => {
+    const knock = async name => {
       await popC.click('#refresh-rooms')
       await until('C sees the public room in the popup', () => popC.evaluate(roomName => {
         const row = [...document.querySelectorAll('.room-row')].find(row => row.textContent.includes(roomName))
         return {ok: !!row, info: row?.textContent}
       }, roomName))
+      const knockDisabled = () => popC.evaluate(roomName => [...document.querySelectorAll('.room-row')].find(row => row.textContent.includes(roomName)).querySelector('button').disabled, roomName)
+      await popC.$eval('#visitor-name', el => { el.value = ''; el.dispatchEvent(new Event('input')) })
+      await until('Knock is disabled while the name is empty', async () => ({ok: await knockDisabled()}))
+      await popC.type('#visitor-name', name)
+      await until('Knock is enabled once a name is typed', async () => ({ok: !(await knockDisabled())}))
       await popC.evaluate(roomName => [...document.querySelectorAll('.room-row')].find(row => row.textContent.includes(roomName)).querySelector('button').click(), roomName)
-      await until('both members receive the knock', async () => {
+      await until('both members receive the knock under the typed name', async () => {
         const [a, b] = await Promise.all([status(popA), status(popB)])
-        return {ok: a.knocks.length === 1 && b.knocks.length === 1 && a.knocks[0].name === 'sam', info: [a.knocks, b.knocks]}
+        return {ok: a.knocks.length === 1 && b.knocks.length === 1 && a.knocks[0].name === name && b.knocks[0].name === name, info: [a.knocks, b.knocks]}
       })
+      const saved = (await bgCall(popC, {type: 'profile'})).name
+      if (saved !== name) throw new Error(`FAIL knocking did not save the typed name: ${saved}`)
     }
-    await knock()
-    await until('C sees the waiting state', () => popC.evaluate(() => ({ok: !document.querySelector('#waiting').hidden && document.querySelector('#waiting-name').textContent.includes('sam'), info: document.querySelector('#waiting').textContent})))
+    await knock('Sam Typed')
+    await until('C sees the waiting state', () => popC.evaluate(() => ({ok: !document.querySelector('#waiting').hidden && document.querySelector('#waiting-name').textContent.includes('Sam Typed'), info: document.querySelector('#waiting').textContent})))
     await until('knock uses the people notification switch', async () => {
       const shown = await popA.evaluate(() => chrome.notifications.getAll())
       const knock = (await status(popA)).knocks[0]
@@ -204,7 +216,7 @@ async function publicScenario() {
     await until('knock card renders above chat on both panels', async () => {
       const card = panel => panel.evaluate(() => {
         const knock = document.querySelector('.knock')
-        return knock?.textContent.includes('sam wants to join') && Boolean(knock.compareDocumentPosition(document.querySelector('#log')) & Node.DOCUMENT_POSITION_FOLLOWING)
+        return knock?.textContent.includes('Sam Typed wants to join') && Boolean(knock.compareDocumentPosition(document.querySelector('#log')) & Node.DOCUMENT_POSITION_FOLLOWING)
       })
       return {ok: await card(panelA) && await card(panelB)}
     })
@@ -220,18 +232,35 @@ async function publicScenario() {
       return {ok: !a.knocks.length && !b.knocks.length && c.knocking?.phase === 'failed' && message}
     })
     await popC.click('#back-rooms')
-    await knock()
+    await knock('Sam Typed')
     await until('C can cancel a pending knock', async () => ({ok: (await status(popC)).knocking?.phase === 'waiting'}))
     await popC.click('#cancel-knock')
     await until('cancel clears both member cards', async () => ({ok: !(await status(popA)).knocks.length && !(await status(popB)).knocks.length && !(await status(popC)).knocking}))
-    await knock()
+    await knock('Sam Typed')
     await until('A sees the repeated knock card', () => panelA.evaluate(() => ({ok: !!document.querySelector('.knock')})))
     await panelA.click('.knock button:first-child')
     await until('C is a full room member after admission', async () => {
       const [a, b, c] = await Promise.all([status(popA), status(popB), status(popC)])
       return {ok: c?.roomId === started.roomId && c.state?.public && c.peers === 2 && a.peers === 2 && b.peers === 2 && !a.knocks.length && !b.knocks.length, info: {roomId: c?.roomId, members: c?.members}}
     })
-    await hasEvent('letting in posts an activity line', popC, /^alice let sam in$/)
+    // After Let in the visitor's tab joins with no confirm and sits on the
+    // room's current video, on the site the room plays on, at its position.
+    const lands = async (label, name) => {
+      await C.page.bringToFront()
+      await until(label, async () => {
+        const [a, c, p] = await Promise.all([status(popA), status(popC), player(C.page)])
+        const url = new URL(C.page.url())
+        const want = c.state ? c.state.pos + (c.state.playing ? (Date.now() - c.state.at) / 1000 : 0) : null
+        const ok = c.roomId === started.roomId && c.state?.v === a.state.v && url.host === SITE && url.pathname === '/watch' &&
+          url.searchParams.get('v') === a.state.v && p.host === SITE && p.v === a.state.v && p.ready && !p.ad && !p.error &&
+          Math.abs(p.t - want) < 6 && c.members[0].name === name && a.members.some(m => m.name === name)
+        return {ok, info: {url: url.href, room: a.state.v, p, want, members: c.members.map(m => m.name)}}
+      })
+      if (dialogs) throw new Error(`FAIL admission showed ${dialogs} confirm dialog(s) to the visitor`)
+      await popC.bringToFront()
+    }
+    await lands('C lands on the room video on the room site with its typed name', 'Sam Typed')
+    await hasEvent('letting in posts an activity line', popC, /^alice let Sam Typed in$/)
     await until('directory count updates after admission', async () => {
       const listing = (await directoryCall(popC, '/rooms')).find(r => r.lobby === publicLobby)
       return {ok: listing?.count === 3, info: listing}
@@ -240,6 +269,20 @@ async function publicScenario() {
       await popA.setViewport({width: 340, height: 620})
       await popA.screenshot({path: join(process.env.E2E_ARTIFACTS, 'public-in-room.png')})
     }
+    // A visitor who knocks from the YouTube home page, on the other site than
+    // the room, still lands on the room's video on the room's site.
+    await bgCall(popC, {type: 'leave'})
+    await until('C leaves before knocking again', async () => ({ok: !(await status(popC))?.roomId && (await status(popA)).peers === 1}))
+    await C.page.goto(`https://${SITE === 'www.youtube.com' ? 'music.youtube.com' : 'www.youtube.com'}/`)
+    await C.page.bringToFront()
+    await popC.reload()
+    await popC.waitForFunction(() => !document.querySelector('#out').hidden)
+    await popC.bringToFront()
+    await knock('Sam Home')
+    await until('B sees the knock card from the home page visitor', () => panelB.evaluate(() => ({ok: document.querySelector('.knock')?.textContent.includes('Sam Home wants to join')})))
+    await panelB.click('.knock button:first-child')
+    await lands('C lands on the room video after knocking from the other site home page', 'Sam Home')
+    await hasEvent('second admission posts its activity line', popC, /^bob let Sam Home in$/)
     const entries = await Promise.all([popA, popB, popC].map(async pop => ({pop, s: await status(pop)})))
     const leaderId = entries.map(e => e.s.selfId).sort()[0]
     const leader = entries.find(e => e.s.selfId === leaderId)
