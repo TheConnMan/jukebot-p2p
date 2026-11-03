@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.2
+## Unreleased
 
 Fixes invite links that led to a room with chat but no video. Starting a room from a YouTube tab that was open before the extension was installed or updated no longer leaves an empty room and a working invite link behind; the popup asks for a reload instead. Someone who joined from the home page and finds the room empty can now open a video to start it, where before they were stuck.
 
