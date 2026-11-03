@@ -16,7 +16,7 @@ To load a release build by hand instead:
 6. Pick the unzipped folder.
 7. After you update, reload the extension card on chrome://extensions.
 
-To release a version, bump the version in manifest.json, add a CHANGELOG.md entry for it, and push a tag vX.Y.Z on a commit that is already on main (the release fails otherwise). That tag push creates the GitHub Release and submits the build to the Chrome Web Store for review. After approval, publish it from the developer dashboard.
+To release a version, bump the version in manifest.json, add a CHANGELOG.md entry for it, and push a tag vX.Y.Z on a commit that is already on main (the release fails otherwise). That tag push creates the GitHub Release and submits the build to the Chrome Web Store for review. The store publishes it automatically once it is approved.
 
 ## Use
 
@@ -52,7 +52,7 @@ The directory has its own package in `server/` and needs no extension build step
 
 The directory caps names at 80 characters, titles at 200, keys and lobby codes at 24 to 80 safe characters, counts at 0 to 12, request bodies at 4096 bytes, and live listings at 32. The small cap and one-minute heartbeats target the Workers free tier. Cloudflare's free quotas still apply to total traffic. The API accepts `POST /rooms` with `{key, lobby, name, title, count}`, `DELETE /rooms/<key>`, and `GET /rooms`, returning only `{lobby, name, title, count}` per listing. Wrong-key updates are rejected; deleting an unknown key returns 404. Expired rows are removed on the next directory request.
 
-Before publishing 0.5.0, update the Chrome Web Store privacy/data disclosure for public room directory data.
+Before releasing 0.5.1, update the Chrome Web Store privacy/data disclosure for public room directory data.
 
 ## Privacy and trademarks
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+Releases now go live in the Chrome Web Store as soon as review approves them, with no manual publish step. 0.5.1 carries the 0.5.0 changes to the store, since 0.5.0 never reached it.
+
 ## 0.5.0
 
 Optional public rooms. List a room publicly, browse current rooms and knock to ask to join. Any member can let a visitor in, decline or switch the room back to private. Your name is now set at the top of the popup, and Knock needs one, so members can tell who is knocking, and a visitor who is let in lands on the room's current video on the site the room uses, with no extra prompt. Knocks appear above side-panel chat and use the people notification switch; admission posts an activity line. Public admission is capped at 12 people. Invite links and room codes still join directly.
