@@ -102,7 +102,14 @@ async function refresh() {
 $('start').onclick = async () => {
   const r = await bg({type: 'join', roomId: newRoomId($('room-name').value), tabId: tab.id, settings: {public: $('list-publicly').checked, name: $('room-name').value.trim()}})
   if (r?.error) return showError(r.error)
-  await chrome.tabs.sendMessage(tab.id, {type: 'start', roomId: r.roomId}).catch(() => showError('Reload the YouTube tab, then try again.'))
+  // A tab opened before the extension was installed or updated has no content
+  // script, so nothing would ever put its video in the room. Do not leave an
+  // empty room behind with an invite link that leads nowhere.
+  const started = await chrome.tabs.sendMessage(tab.id, {type: 'start', roomId: r.roomId}).then(() => true, () => false)
+  if (!started) {
+    await bg({type: 'leave'})
+    showError('Reload the YouTube tab, then try again.')
+  }
   setTimeout(refresh, 200)
 }
 
