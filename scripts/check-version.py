@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""Check manifest.json against the latest v* tag.
+"""Check manifest.json against the v* tags.
 
-Skip when the repo has no v* tag. The manifest version must never be lower
-than that tag. When a shipped file (the list from scripts/package.sh --list)
-differs between the tag and HEAD, the manifest version must be strictly
-greater and CHANGELOG.md must contain a "## <version>" heading.
+Versions are bumped on main right before a release, never on a feature
+branch, so a plain run (CI on every push and PR) only checks that the
+manifest version is not lower than the latest v* tag.
+
+With --match-tag vX.Y.Z (the release workflow), the tag must equal the
+manifest version, and when a shipped file (the list from
+scripts/package.sh --list) differs from the previous v* tag, the version
+must be greater than that tag and CHANGELOG.md must contain a
+"## <version>" heading.
+
+Skip the tag comparisons when the repo has no other v* tag.
 """
 
 import json
@@ -51,11 +58,20 @@ def main():
             sys.exit(f"tag {match_tag} is {got}; manifest.json is {manifest_version}")
 
     tags = [line for line in run("git", "tag", "-l", "v*", "--sort=-version:refname").splitlines() if line]
+    if match_tag is not None:
+        tags = [tag for tag in tags if tag != match_tag]
     if not tags:
-        print("no v* tag; skipping version check")
+        print("no earlier v* tag; skipping version check")
         return
     latest = tags[0]
     latest_version = latest[1:] if latest.startswith("v") else latest
+
+    relation = compare(parse_version(manifest_version), parse_version(latest_version))
+    if relation < 0:
+        sys.exit(f"manifest {manifest_version} is lower than {latest}")
+    if match_tag is None:
+        print(f"version {manifest_version} ok against {latest}")
+        return
 
     shipped = [line for line in run("bash", str(root / "scripts" / "package.sh"), "--list").splitlines() if line]
     diff = [
@@ -63,10 +79,6 @@ def main():
         for line in run("git", "diff", "--name-only", latest, "HEAD", "--", *shipped).splitlines()
         if line
     ]
-
-    relation = compare(parse_version(manifest_version), parse_version(latest_version))
-    if relation < 0:
-        sys.exit(f"manifest {manifest_version} is lower than {latest}")
     if diff:
         if relation == 0:
             listed = "\n".join(diff)
@@ -78,7 +90,6 @@ def main():
             sys.exit(f"CHANGELOG.md has no {heading} heading")
     changed = f" ({len(diff)} shipped files differ)" if diff else ""
     print(f"version {manifest_version} ok against {latest}{changed}")
-
 
 if __name__ == "__main__":
     main()

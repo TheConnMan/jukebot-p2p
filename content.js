@@ -5,7 +5,7 @@
 (() => {
   const TOLERANCE = 2 // seconds of drift allowed before seeking
   const KNOWN = 'jukebot.knownVid' // last video this tab agreed on with the room; survives reloads
-  const FOLLOW = 'jukebot.followRoom' // joined from a page with no video: wait for the room's video, never seed or overwrite it
+  const FOLLOW = 'jukebot.followRoom' // joined from a page with no video: wait for the room's video, never overwrite it, seed only an empty room
   const AUTOPLAY_WINDOW = 10000 // after an end the room moved on from, ignore the site's own autoplay for this long
   const SEED_AFTER = 8000 // no peer state by then: this tab is the room
 
@@ -69,10 +69,11 @@
   }
 
   // Nobody sent room state. Publish the start patch, but keep the local player
-  // on whatever arrived in the meantime: a higher rev from a peer wins.
+  // on whatever arrived in the meantime: a higher rev from a peer wins. A
+  // home-page joiner waits for the room's video, but if the room has none and
+  // this person opens a video, that video starts the room.
   function seedIfAlone() {
     seedTimer = null
-    if (followRoom) return
     if (!inRoom || state?.v) return
     if (!mediaReady() || !currentVid()) return armSeed()
     const patch = initialPatch()
@@ -80,6 +81,8 @@
     send({to: 'offscreen', type: 'update', roomId, patch, reason: 'start'}).then(ok => {
       if (gen !== generation || ok !== true || state?.v) return
       state = {...patch, at: Date.now()}
+      followRoom = false
+      sessionStorage.removeItem(FOLLOW)
       sessionStorage.setItem(KNOWN, patch.v)
       aligned = true
     })
