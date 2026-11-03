@@ -52,8 +52,6 @@ The directory has its own package in `server/` and needs no extension build step
 
 The directory caps names at 80 characters, titles at 200, keys and lobby codes at 24 to 80 safe characters, counts at 0 to 12, request bodies at 4096 bytes, and live listings at 32. The small cap and one-minute heartbeats target the Workers free tier. Cloudflare's free quotas still apply to total traffic. The API accepts `POST /rooms` with `{key, lobby, name, title, count}`, `DELETE /rooms/<key>`, and `GET /rooms`, returning only `{lobby, name, title, count}` per listing. Wrong-key updates are rejected; deleting an unknown key returns 404. Expired rows are removed on the next directory request.
 
-Before releasing 0.5.1, update the Chrome Web Store privacy/data disclosure for public room directory data.
-
 ## Privacy and trademarks
 
 See [PRIVACY.md](PRIVACY.md). Private rooms send nothing to the directory. Public room listings and directory requests reach the developer's directory server as described in the policy.
