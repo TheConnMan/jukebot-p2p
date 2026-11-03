@@ -3,7 +3,7 @@
 
 status: print the published and submitted crx versions.
 submit <zip>: upload the zip, wait until the upload succeeds, then submit
-for review with publishType STAGED_PUBLISH.
+for review with publishType DEFAULT_PUBLISH, so it goes live once approved.
 
 Reads CWS_SERVICE_ACCOUNT_KEY (service account JSON) and CWS_PUBLISHER_ID.
 Mints an access token with the JWT bearer flow from
@@ -173,7 +173,7 @@ def submit(zip_path):
         token,
         "POST",
         item_url(publisher_id) + ":publish",
-        data=json.dumps({"publishType": "STAGED_PUBLISH"}).encode(),
+        data=json.dumps({"publishType": "DEFAULT_PUBLISH"}).encode(),
         headers={"Content-Type": "application/json"},
     )
     state = published.get("state", "")
