@@ -16,6 +16,7 @@
   body{margin:0;width:340px;background:var(--bg);color:var(--fg);font:13px/1.5 var(--mono)}
   header{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line)}
   .brand{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim)}
+  .ver{font-size:10px;text-transform:none;letter-spacing:.08em;color:var(--dim2);margin-left:8px}
   .pill{font-size:10px;text-transform:uppercase;letter-spacing:.08em;display:flex;align-items:center;gap:6px;color:var(--dim2)}
   .pill::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
   .pill.live{color:var(--acc)} .pill.ok{color:var(--ok)}
@@ -59,7 +60,7 @@
 </head>
 <body>
 <header>
-  <span class="brand">JukeBot P2P</span>
+  <span class="brand">JukeBot P2P<span id="ver" class="ver"></span></span>
   <span id="pill" class="pill">no room</span>
 </header>
 

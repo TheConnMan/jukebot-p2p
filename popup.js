@@ -3,6 +3,7 @@ import {directory} from './directory.js'
 import {codeFor, roomAction} from './remembered.js'
 
 const $ = id => document.getElementById(id)
+$('ver').textContent = 'v' + chrome.runtime.getManifest().version
 const HOSTS = ['www.youtube.com', 'music.youtube.com']
 
 let tab = null
