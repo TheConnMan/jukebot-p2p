@@ -132,8 +132,10 @@
       lastEnded = Date.now()
       endedVid = currentVid()
       // The room's video ended in YouTube Music's player bar while this person
-      // browses: the queue still moves on.
-      if (state?.v && !currentVid() && mediaVid === state.v && sessionStorage.getItem(KNOWN) === state.v) return onEnded()
+      // browses: the queue still moves on. The bar is not kept in sync while
+      // browsing, so only when the room's own clock also says the video is over.
+      const browsing = state?.v && !currentVid() && mediaVid === state.v && sessionStorage.getItem(KNOWN) === state.v
+      if (browsing && state.playing && expected(state) >= (e.target.duration || Infinity) - TOLERANCE) return onEnded()
     }
     if (!['play', 'pause', 'seeked', 'ended'].includes(e.type)) return
     if (!inRoom || !state || !aligned || !mediaReady() || extensionSeek) return

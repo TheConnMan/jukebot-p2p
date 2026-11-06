@@ -114,11 +114,24 @@ test('when the room moves on during browsing, the tab is sent there once, and a 
 test('the room’s video ending in the player bar while browsing advances the queue', async () => {
   const {p} = await inRoomOnA([{id: B, title: 'Song B', duration: 180}])
   p.browse('/')
-  await p.advance(1000)
+  await p.advance(200000)
   p.video.ended = true
   p.media('ended')
   const advance = p.sent.find(m => m.type === 'update' && m.reason === 'advance')
   assert.equal(advance?.patch.v, B)
+})
+
+test('the player bar ending while browsing does not advance a room that was paused or seeked back', async () => {
+  const {p, state} = await inRoomOnA([{id: B, title: 'Song B', duration: 180}])
+  p.browse('/')
+  await p.advance(1000)
+  p.roomMessage({...state, pos: 10, playing: false, at: p.clock()})
+  await p.advance(1000)
+  p.video.ended = true
+  p.media('ended')
+  p.roomMessage({...state, pos: 10, playing: true, at: p.clock()})
+  p.media('ended')
+  assert.equal(p.sent.find(m => m.reason === 'advance'), undefined)
 })
 
 test('a watch page for a video the room left is still sent to the room’s video', async () => {
