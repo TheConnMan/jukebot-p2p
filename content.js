@@ -131,6 +131,11 @@
       // site's autoplay that follows is not mistaken for the user's pick.
       lastEnded = Date.now()
       endedVid = currentVid()
+      // The room's video ended in YouTube Music's player bar while this person
+      // browses: the queue still moves on. The bar is not kept in sync while
+      // browsing, so only when the room's own clock also says the video is over.
+      const browsing = state?.v && !currentVid() && mediaVid === state.v && sessionStorage.getItem(KNOWN) === state.v
+      if (browsing && state.playing && expected(state) >= (e.target.duration || Infinity) - TOLERANCE) return onEnded()
     }
     if (!['play', 'pause', 'seeked', 'ended'].includes(e.type)) return
     if (!inRoom || !state || !aligned || !mediaReady() || extensionSeek) return
@@ -157,6 +162,11 @@
         sessionStorage.setItem(KNOWN, vid)
         const el = video()
         publish({v: vid, pos: mediaReady() ? el.currentTime : 0, playing: true}, 'pick')
+      } else if (!vid && known === state.v) {
+        // A page with no video of its own (home, search, library) after this tab
+        // played, or was already sent to, the room's video: the person is browsing,
+        // so stay put. YouTube Music keeps playing in its player bar, and a
+        // navigation it blocked with a leave-site prompt is not retried.
       } else if (followRoom || Date.now() - navAt > 5000) {
         navigate(state.v, expected(state))
       }
