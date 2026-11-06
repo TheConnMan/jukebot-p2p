@@ -20,6 +20,7 @@
   let followRoom = sessionStorage.getItem(FOLLOW) === '1'
   let generation = 0
   let joining = false
+  let rejoinOnly = false
   let extensionSeek = false
   let mediaVid = null
   let mediaSrc = null
@@ -75,6 +76,18 @@
   function seedIfAlone() {
     seedTimer = null
     if (!inRoom || state?.v) return
+    // Rejoin must not become a new empty room. An invite with no peers seeds
+    // this tab; a rejoin leaves instead, and the popup says nobody is there.
+    if (rejoinOnly) {
+      const gen = generation
+      send({to: 'offscreen', type: 'hello'}).then(s => {
+        if (gen !== generation || !rejoinOnly || state?.v) return
+        if ((s?.peers ?? 0) > 0) return armSeed()
+        rejoinOnly = false
+        send({to: 'bg', type: 'rejoinMiss'})
+      })
+      return
+    }
     if (!mediaReady() || !currentVid()) return armSeed()
     const patch = initialPatch()
     const gen = generation
@@ -180,12 +193,14 @@
   // video in an invite link is whatever played when it was copied, never the
   // user's pick, so it is marked known and the room's current video wins.
   function joinFromHash() {
-    const id = new URLSearchParams(location.hash.slice(1)).get('jukebot')
+    const params = new URLSearchParams(location.hash.slice(1))
+    const id = params.get('jukebot')
     if (!id) return false
     history.replaceState(history.state, '', location.href.split('#')[0])
     if (!confirm('Join this JukeBot room? This replaces your current room if you are in one.')) return false
     const gen = ++generation
     joining = true
+    rejoinOnly = params.get('rejoin') === '1'
     if (id !== roomId) {
       clearTimeout(seedTimer)
       state = null
@@ -210,6 +225,7 @@
       if (!r || r.error || r.roomId !== roomId) return
       enter(false)
       state ??= r.state
+      if (state?.v) rejoinOnly = false
       if (!state?.v) armSeed()
     })
     return true
@@ -225,7 +241,10 @@
       }
       roomId = msg.roomId
       if (!inRoom) enter(false)
-      if (msg.state?.v) clearTimeout(seedTimer)
+      if (msg.state?.v) {
+        clearTimeout(seedTimer)
+        rejoinOnly = false
+      }
       if (msg.state?.v !== state?.v) aligned = false
       state = msg.state
       if (!state?.v) armSeed()

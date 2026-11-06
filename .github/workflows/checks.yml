@@ -28,6 +28,9 @@ jobs:
       - name: Package
         run: scripts/package.sh
 
+      - name: Unit tests
+        run: npm test
+
       - name: Syntax
         run: |
           shopt -s nullglob

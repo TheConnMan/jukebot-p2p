@@ -16,6 +16,7 @@ SHIPPED=(
   youtube.js
   directory.js
   public-rooms.js
+  remembered.js
   vendor/trystero.js
   icon16.png
   icon48.png
