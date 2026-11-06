@@ -193,16 +193,14 @@
   // video in an invite link is whatever played when it was copied, never the
   // user's pick, so it is marked known and the room's current video wins.
   function joinFromHash() {
-    const id = new URLSearchParams(location.hash.slice(1)).get('jukebot')
+    const params = new URLSearchParams(location.hash.slice(1))
+    const id = params.get('jukebot')
     if (!id) return false
     history.replaceState(history.state, '', location.href.split('#')[0])
-    if (!confirm('Join this JukeBot room? This replaces your current room if you are in one.')) {
-      chrome.storage.session.remove('rejoinRoom')
-      return false
-    }
+    if (!confirm('Join this JukeBot room? This replaces your current room if you are in one.')) return false
     const gen = ++generation
     joining = true
-    rejoinOnly = false
+    rejoinOnly = params.get('rejoin') === '1'
     if (id !== roomId) {
       clearTimeout(seedTimer)
       state = null
@@ -221,12 +219,7 @@
       sessionStorage.setItem(FOLLOW, '1')
       sessionStorage.removeItem(KNOWN)
     }
-    chrome.storage.session.get('rejoinRoom').then(stored => {
-      if (gen !== generation) return
-      rejoinOnly = stored?.rejoinRoom === id
-      if (stored?.rejoinRoom) chrome.storage.session.remove('rejoinRoom')
-      return send({to: 'bg', type: 'join', roomId: id})
-    }).then(r => {
+    send({to: 'bg', type: 'join', roomId: id}).then(r => {
       if (gen !== generation) return
       joining = false
       if (!r || r.error || r.roomId !== roomId) return

@@ -115,8 +115,9 @@ $('start').onclick = async () => {
 }
 
 // Invite link, pasted code, and Rejoin all open the same hash. The content
-// script joins and, once the room sends its video, opens that video.
-async function openRoom(text) {
+// script joins and, once the room sends its video, opens that video. A rejoin
+// adds rejoin=1 so the tab leaves instead of seeding an empty room.
+async function openRoom(text, rejoin = false) {
   let url
   try {
     url = new URL(text)
@@ -124,7 +125,7 @@ async function openRoom(text) {
   } catch {
     const here = watchVid(tab?.url) || HOSTS.includes(new URL(tab?.url ?? 'about:blank').host)
     url = new URL(here ? tab.url : 'https://music.youtube.com/')
-    url.hash = `jukebot=${encodeURIComponent(text)}`
+    url.hash = `jukebot=${encodeURIComponent(text)}${rejoin ? '&rejoin=1' : ''}`
   }
   await chrome.tabs.update(tab.id, {url: url.href})
   window.close()
@@ -193,8 +194,7 @@ async function loadRooms() {
       button.onclick = async () => {
         if (action === 'Full') return
         if (action === 'Rejoin') {
-          await chrome.storage.session.set({rejoinRoom: code})
-          await openRoom(code)
+          await openRoom(code, true)
           return
         }
         await bg({type: 'setName', name: $('my-name').value})

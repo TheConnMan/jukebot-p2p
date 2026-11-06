@@ -183,7 +183,6 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     // visible miss as an invite that never connects: the popup error line.
     rejoinMiss: async () => {
       await leave()
-      await chrome.storage.session.remove('rejoinRoom')
       await chrome.storage.session.set({rejoinError: 'Nobody is in that room.'})
       chrome.notifications.create(`rejoin-${Date.now()}`, {type: 'basic', iconUrl: 'icon128.png', title: 'JukeBot', message: 'Nobody is in that room.'}).catch(() => {})
       chrome.runtime.sendMessage({to: 'popup', type: 'rejoinError'}).catch(() => {})
