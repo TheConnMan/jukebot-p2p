@@ -4,6 +4,8 @@
 
 Fixes browsing away from the room's video (issue #7). Going to Home, search or your library while in a room no longer pulls the tab back to the video every few seconds, which on YouTube Music meant an endless "Leave site?" prompt. If the room moves to another video while you browse, the tab goes there once, and if you cancel the prompt it is not asked again for that video. When the room's song ends in YouTube Music's player bar while you browse, the room's queue still moves on.
 
+Emoji reactions on chat messages. Hover a message in the side panel and choose the smiley button to pick from a quick row of six or a grid of forty more. Reactions show under the message as an emoji and a count, yours highlighted; click one to add or take back your own, and hover it to see who reacted. They reach everyone in the room right away and people who join later with the chat history. Reactions never count as unread or raise a notification. People still on 0.5.3 keep chatting normally but do not see reactions.
+
 ## 0.5.3
 
 The popup header shows the extension version next to the name.
