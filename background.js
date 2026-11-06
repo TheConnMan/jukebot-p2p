@@ -142,7 +142,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   const fromExtension = sender.id === chrome.runtime.id && (sender.url ?? '').startsWith(chrome.runtime.getURL(''))
   const fromOffscreen = fromExtension && sender.url === chrome.runtime.getURL('offscreen.html')
   const fromTab = sender.frameId === 0 && sender.tab && /^https:\/\/(www\.youtube\.com|music\.youtube\.com)\//.test(sender.url ?? '')
-  if (['push', 'incoming', 'authored', 'admitted'].includes(msg.type) ? !fromOffscreen : msg.type === 'join' ? !(fromExtension || fromTab) : !fromExtension) return false
+  if (['push', 'incoming', 'authored', 'admitted'].includes(msg.type) ? !fromOffscreen : msg.type === 'join' || msg.type === 'rejoinMiss' ? !(fromExtension || fromTab) : !fromExtension) return false
   if (msg.type === 'authored') {
     chrome.storage.session.set({ownMessages: msg.messages})
     return false
@@ -179,6 +179,15 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       return ['www.youtube.com', 'music.youtube.com'].includes(host) ? host : 'www.youtube.com'
     },
     leave,
+    // A rejoin found no peers before this tab could become the room. Same
+    // visible miss as an invite that never connects: the popup error line.
+    rejoinMiss: async () => {
+      await leave()
+      await chrome.storage.session.remove('rejoinRoom')
+      await chrome.storage.session.set({rejoinError: 'Nobody is in that room.'})
+      chrome.notifications.create(`rejoin-${Date.now()}`, {type: 'basic', iconUrl: 'icon128.png', title: 'JukeBot', message: 'Nobody is in that room.'}).catch(() => {})
+      chrome.runtime.sendMessage({to: 'popup', type: 'rejoinError'}).catch(() => {})
+    },
     status,
     profile,
     directoryConfig: () => chrome.storage.local.get('directoryUrl'),

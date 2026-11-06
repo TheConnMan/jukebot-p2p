@@ -1,5 +1,6 @@
 import {videoId as watchVid} from './youtube.js'
 import {directory} from './directory.js'
+import {codeFor, roomAction} from './remembered.js'
 
 const $ = id => document.getElementById(id)
 const HOSTS = ['www.youtube.com', 'music.youtube.com']
@@ -113,21 +114,25 @@ $('start').onclick = async () => {
   setTimeout(refresh, 200)
 }
 
-$('join').onclick = async () => {
-  const text = $('invite').value.trim()
-  if (!text) return
+// Invite link, pasted code, and Rejoin all open the same hash. The content
+// script joins and, once the room sends its video, opens that video.
+async function openRoom(text) {
   let url
   try {
     url = new URL(text)
     if (!HOSTS.includes(url.host) || !url.hash.includes('jukebot=')) return showError('That is not a JukeBot invite link.')
   } catch {
-    // A bare room code: join from this tab if it is YouTube, else open YouTube Music.
     const here = watchVid(tab?.url) || HOSTS.includes(new URL(tab?.url ?? 'about:blank').host)
     url = new URL(here ? tab.url : 'https://music.youtube.com/')
     url.hash = `jukebot=${encodeURIComponent(text)}`
   }
   await chrome.tabs.update(tab.id, {url: url.href})
   window.close()
+}
+
+$('join').onclick = () => {
+  const text = $('invite').value.trim()
+  if (text) openRoom(text)
 }
 
 $('copy').onclick = async () => {
@@ -163,6 +168,7 @@ async function loadRooms() {
   $('refresh-rooms').disabled = true
   try {
     const rooms = await directory('/rooms')
+    const {rememberedRooms = []} = await chrome.storage.local.get('rememberedRooms')
     $('rooms').replaceChildren(...rooms.map(room => {
       const li = document.createElement('li')
       li.className = 'room-row'
@@ -178,11 +184,19 @@ async function loadRooms() {
       const count = document.createElement('span')
       count.className = `count${room.count >= 12 ? ' full' : ''}`
       count.textContent = `${room.count}/12`
+      const code = codeFor(rememberedRooms, room.lobby)
+      const action = roomAction(room.count, code)
       const button = document.createElement('button')
-      button.className = 'knock'
-      button.textContent = room.count >= 12 ? 'Full' : 'Knock'
+      button.className = action === 'Rejoin' ? 'rejoin' : 'knock'
+      button.textContent = action
       button.dataset.full = room.count >= 12
       button.onclick = async () => {
+        if (action === 'Full') return
+        if (action === 'Rejoin') {
+          await chrome.storage.session.set({rejoinRoom: code})
+          await openRoom(code)
+          return
+        }
         await bg({type: 'setName', name: $('my-name').value})
         const ok = await bg({type: 'knock', listing: room, tabId: tab.id})
         if (ok !== true) showError(ok?.error || 'Unable to knock. Refresh and try again.')
@@ -215,7 +229,15 @@ for (const id of ['cancel-knock', 'back-rooms']) $(id).onclick = async () => {
   await refresh()
 }
 
+async function showRejoinError() {
+  const {rejoinError} = await chrome.storage.session.get('rejoinError')
+  if (!rejoinError) return
+  await chrome.storage.session.remove('rejoinError')
+  showError(rejoinError)
+}
+
 chrome.runtime.onMessage.addListener(msg => {
+  if (msg.to === 'popup' && msg.type === 'rejoinError') showRejoinError()
   if ((msg.to === 'bg' && msg.type === 'push') || msg.type === 'knocks') refresh()
 })
 
@@ -224,5 +246,6 @@ window.newRoomId = newRoomId
 Promise.all([chrome.tabs.query({active: true, currentWindow: true}), bg({type: 'profile'})]).then(([[t], profile]) => {
   tab = t
   $('my-name').value = profile?.name ?? ''
+  showRejoinError()
   return refresh()
 })

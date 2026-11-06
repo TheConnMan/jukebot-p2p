@@ -19,6 +19,7 @@
 import {joinRoom, selfId} from './vendor/trystero.js'
 import {lookup, validId} from './youtube.js'
 import {PublicRooms} from './public-rooms.js'
+import {remember} from './remembered.js'
 
 const APP_ID = 'jukebot-p2p'
 const CHAT_KEEP = 200
@@ -88,8 +89,22 @@ function cleanState(s) {
   }
 }
 
+let rememberedKey = ''
+
+function rememberPublic() {
+  if (!state?.public || !roomId) return
+  const key = `${state.lobby}\n${roomId}`
+  if (key === rememberedKey) return
+  rememberedKey = key
+  chrome.storage.local.get('rememberedRooms').then(({rememberedRooms}) => {
+    if (`${state?.lobby}\n${roomId}` !== key) return
+    return chrome.storage.local.set({rememberedRooms: remember(rememberedRooms, {lobby: state.lobby, code: roomId})})
+  }).catch(() => {})
+}
+
 function push() {
   publicRooms.sync()
+  rememberPublic()
   chrome.runtime.sendMessage({to: 'bg', type: 'push', roomId, tabId, state, peers: members.size}).catch(() => {})
 }
 
@@ -181,6 +196,7 @@ function leave() {
   presenceAt.clear()
   clearTimeout(seekTimer)
   roomSettings = {public: false, name: '', lobby: '', key: ''}
+  rememberedKey = ''
   return cleanup
 }
 
@@ -423,7 +439,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       reply(true)
       break
     case 'hello':
-      reply({inRoom: room != null, roomId, state})
+      reply({inRoom: room != null, roomId, state, peers: members.size})
       break
     case 'update':
       // A start seed never replaces state that already arrived: a later

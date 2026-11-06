@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test test/remembered.test.mjs",
     "test:e2e": "node test/e2e.mjs"
   },
   "devDependencies": {
