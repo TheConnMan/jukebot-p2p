@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+Fixes browsing away from the room's video (issue #7). Going to Home, search or your library while in a room no longer pulls the tab back to the video every few seconds, which on YouTube Music meant an endless "Leave site?" prompt. If the room moves to another video while you browse, the tab goes there once, and if you cancel the prompt it is not asked again for that video. When the room's song ends in YouTube Music's player bar while you browse, the room's queue still moves on.
+
 ## 0.5.3
 
 The popup header shows the extension version next to the name.
