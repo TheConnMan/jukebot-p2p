@@ -1,3 +1,5 @@
+import {GRID, QUICK} from './reactions.js'
+
 const $ = id => document.getElementById(id)
 
 const TYPING_EVERY = 2000
@@ -8,6 +10,8 @@ let lastTyping = 0
 let shownLog = ''
 let shownQueue = ''
 let shownKnocks = ''
+let reactions = {}
+let picking = null // {id, button} while the reaction picker is open
 
 const bg = msg => chrome.runtime.sendMessage({to: 'bg', ...msg})
 const offscreen = msg => chrome.runtime.sendMessage({to: 'offscreen', ...msg})
@@ -41,14 +45,63 @@ function el(tag, className, text) {
   return node
 }
 
+const SMILEY = 'M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18Zm-3.5-7.5a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01'
+
+function smiley() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('aria-hidden', 'true')
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  for (const [k, v] of Object.entries({d: SMILEY, fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round'})) path.setAttribute(k, v)
+  svg.append(path)
+  return svg
+}
+
+const react = (id, emoji) => offscreen({type: 'react', id, emoji})
+
+// Chips under a message: emoji and count, yours highlighted, names on hover.
+function chips(id) {
+  const list = reactions[id] ?? []
+  if (!list.length) return []
+  const row = el('div', 'reactions')
+  row.append(...list.map(({e, users}) => {
+    const mine = users.some(u => u.u === userId)
+    const chip = el('button', `chip${mine ? ' mine' : ''}`)
+    chip.append(el('span', 'e', e), el('span', 'n', users.length))
+    const names = users.map(u => (u.u === userId ? 'you' : u.name))
+    chip.title = `${names.join(', ')} reacted with ${e}`
+    chip.setAttribute('aria-label', `${e} ${users.length}, ${chip.title}${mine ? '. Click to remove yours' : ''}`)
+    chip.setAttribute('aria-pressed', String(mine))
+    chip.onclick = () => react(id, e)
+    return chip
+  }))
+  return [row]
+}
+
+function addButton(id) {
+  const button = el('button', 'react-add')
+  button.type = 'button'
+  button.dataset.id = id
+  button.title = 'Add reaction'
+  button.setAttribute('aria-label', 'Add reaction')
+  button.append(smiley())
+  button.onclick = () => (picking?.id === id ? closePicker() : openPicker(id, button))
+  if (picking?.id === id) {
+    button.classList.add('open')
+    picking.button = button
+  }
+  return button
+}
+
 function renderLog(chat, inRoom) {
-  const key = inRoom ? chat.map(m => m.id).join() : 'out'
+  const key = inRoom ? JSON.stringify([userId, chat.map(m => m.id), reactions]) : 'out'
   if (key === shownLog) return
   shownLog = key
   const log = $('log')
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40
   if (!inRoom || !chat.length) {
     log.replaceChildren(el('p', 'empty', inRoom ? 'No messages yet.' : 'Start or join a room from the toolbar button to chat.'))
+    closePicker(false)
     return
   }
   log.replaceChildren(...chat.map(m => {
@@ -59,11 +112,66 @@ function renderLog(chat, inRoom) {
       else div.append(m.text)
       return div
     }
-    const div = el('div', `msg ${hue(m.by)}`)
-    div.append(person(m.name, m.by, m.self === true), el('span', 'ts', time(m.ts)), el('div', 'text', m.text))
+    const div = el('div', `msg chat ${hue(m.by)}`)
+    div.append(person(m.name, m.by, m.self === true), el('span', 'ts', time(m.ts)), el('div', 'text', m.text), ...chips(m.id), addButton(m.id))
     return div
   }))
   if (atBottom) log.scrollTop = log.scrollHeight
+  if (picking && !chat.some(m => m.id === picking.id && m.kind !== 'event')) closePicker()
+  else placePicker()
+}
+
+// One picker for the whole log, fixed to the viewport next to the button that
+// opened it, so it stays open while the log redraws.
+function buildPicker() {
+  const pick = e => {
+    const button = el('button', '', e)
+    button.type = 'button'
+    button.dataset.e = e
+    button.title = e
+    button.onclick = () => {
+      const id = picking?.id
+      closePicker(false)
+      if (id) react(id, e)
+    }
+    return button
+  }
+  $('picker').querySelector('.quick').replaceChildren(...QUICK.map(pick))
+  $('picker').querySelector('.grid').replaceChildren(...GRID.map(pick))
+}
+
+function openPicker(id, button) {
+  closePicker(false)
+  picking = {id, button}
+  button.classList.add('open')
+  const mine = new Set((reactions[id] ?? []).filter(r => r.users.some(u => u.u === userId)).map(r => r.e))
+  for (const b of $('picker').querySelectorAll('button')) b.classList.toggle('mine', mine.has(b.dataset.e))
+  $('picker').hidden = false
+  placePicker()
+  $('picker').querySelector('button').focus({preventScroll: true})
+}
+
+function placePicker() {
+  if (!picking) return
+  const picker = $('picker')
+  const log = $('log').getBoundingClientRect()
+  const at = picking.button.getBoundingClientRect()
+  if (!picking.button.isConnected || at.bottom < log.top || at.top > log.bottom) return closePicker(false)
+  const {offsetWidth: w, offsetHeight: h} = picker
+  const left = Math.max(8, Math.min(at.right - w, innerWidth - w - 8))
+  let top = at.bottom + 4
+  if (top + h > innerHeight - 8) top = Math.max(8, at.top - h - 4)
+  picker.style.left = `${left}px`
+  picker.style.top = `${top}px`
+}
+
+function closePicker(refocus = true) {
+  if (!picking) return
+  const {button} = picking
+  picking = null
+  $('picker').hidden = true
+  button.classList.remove('open')
+  if (refocus && button.isConnected) button.focus({preventScroll: true})
 }
 
 // Rough wall-clock start for each queued video, from the current position and
@@ -140,6 +248,7 @@ async function refresh() {
   }
   renderKnocks(inRoom ? status.knocks : [], (status?.peers ?? 0) + 1)
   renderQueue(inRoom ? status.state : null)
+  reactions = inRoom ? status.reactions ?? {} : {}
   renderLog(status?.chat ?? [], inRoom)
   const typing = inRoom ? status.typing : []
   $('typing').replaceChildren(...(typing.length ? [...typing.flatMap((t, i) => [i ? ', ' : '', person(t.name, t.userId)]), ` ${typing.length > 1 ? 'are' : 'is'} typing…`] : []))
@@ -192,6 +301,19 @@ $('add-form').onsubmit = async e => {
 }
 
 $('skip').onclick = () => offscreen({type: 'skip'})
+
+buildPicker()
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && picking) {
+    e.preventDefault()
+    closePicker()
+  }
+})
+document.addEventListener('pointerdown', e => {
+  if (picking && !$('picker').contains(e.target) && !e.target.closest?.('.react-add')) closePicker(false)
+})
+$('log').addEventListener('scroll', placePicker)
+addEventListener('resize', placePicker)
 
 $('name').onchange = () => bg({type: 'setName', name: $('name').value})
 

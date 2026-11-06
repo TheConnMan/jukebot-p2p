@@ -40,6 +40,25 @@
   #log{flex:1;overflow-y:auto;padding:8px 12px;min-height:80px}
   .msg{padding:4px 0;border-bottom:1px solid var(--line2);overflow-wrap:anywhere}
   .msg.event{color:var(--dim2);font-size:12px}
+  .msg.chat{position:relative}
+  /* Reactions: a hover button opens the picker; chips sit under the message. */
+  .react-add{position:absolute;top:3px;right:0;display:flex;align-items:center;justify-content:center;width:26px;height:20px;padding:0;background:var(--bg);color:var(--dim2);visibility:hidden}
+  .react-add svg{width:14px;height:14px;display:block}
+  .msg.chat:hover .react-add,.react-add:focus-visible,.react-add.open{visibility:visible}
+  .react-add:hover,.react-add.open{color:var(--acc);border-color:var(--acc)}
+  .reactions{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+  .chip{display:inline-flex;align-items:center;gap:5px;padding:0 7px;height:22px;background:var(--panel);color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums;border-radius:11px}
+  .chip .e{font-size:13px;line-height:1}
+  .chip.mine{color:var(--acc2);border-color:var(--acc);background:color-mix(in oklch,var(--acc) 14%,var(--panel))}
+  .chip:hover{border-color:var(--dim2)}
+  .chip.mine:hover{border-color:var(--acc2)}
+  #picker{position:fixed;z-index:10;width:252px;max-width:calc(100vw - 16px);padding:6px;background:var(--panel);border:1px solid var(--line);border-radius:2px;box-shadow:0 8px 24px rgba(0,0,0,.55)}
+  #picker .quick,#picker .grid{display:grid;grid-template-columns:repeat(6,1fr);gap:2px}
+  #picker .grid{grid-template-columns:repeat(8,1fr);margin-top:6px;padding-top:6px;border-top:1px solid var(--line2)}
+  #picker button{border:1px solid transparent;padding:0;height:28px;font-size:17px;line-height:1;border-radius:2px;font-family:system-ui,'Noto Color Emoji',sans-serif}
+  #picker .quick button{height:32px;font-size:20px}
+  #picker button:hover,#picker button:focus-visible{background:rgba(255,255,255,.06);border-color:var(--line);outline:none}
+  #picker button.mine{background:color-mix(in oklch,var(--acc) 16%,transparent);border-color:color-mix(in oklch,var(--acc) 55%,transparent)}
   .u0{--user:var(--u0)} .u1{--user:var(--u1)} .u2{--user:var(--u2)} .u3{--user:var(--u3)}
   .u4{--user:var(--u4)} .u5{--user:var(--u5)} .u6{--user:var(--u6)} .u7{--user:var(--u7)}
   .who{color:var(--user,var(--acc2))}
@@ -92,6 +111,10 @@
 
 <div id="knocks"></div>
 <div id="log"></div>
+<div id="picker" role="dialog" aria-label="Add a reaction" hidden>
+  <div class="quick"></div>
+  <div class="grid"></div>
+</div>
 <div id="typing"></div>
 <form id="form">
   <textarea id="text" rows="1" maxlength="1000" placeholder="Say something"></textarea>
@@ -103,6 +126,6 @@
   <label><input type="checkbox" id="notify-songs"> songs</label>
   <label><input type="checkbox" id="notify-people"> people</label>
 </div>
-<script src="sidepanel.js"></script>
+<script type="module" src="sidepanel.js"></script>
 </body>
 </html>

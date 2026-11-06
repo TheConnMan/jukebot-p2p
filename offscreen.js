@@ -14,12 +14,30 @@
 // dedupe the copies. Join and leave lines are made locally by each peer and
 // marked `local`, so they are never sent as history.
 //
+// Reactions (reactions.js has the record format and merge rules) ride on two
+// actions of their own, never inside chat entries, so chat history relayed by
+// an older peer is untouched. A peer that understands them says so with
+// caps: ['react'] in its hello; older peers ignore that field. Reactions are
+// only ever sent to peers that said so, because this Trystero build holds
+// messages for an action a peer never registered until they time out, which
+// could crowd out that peer's other messages.
+//   react:  [record] a live change. Every record must be by the sender's own
+//           userId (from its hello); anything else is dropped.
+//   reacts: [record] the sender's records for the last CHAT_HISTORY messages,
+//           sent once to each new reacting peer in batches of at most 200.
+//           Relayed records, like chat history, are about anyone.
+// A record is {id, e, u, name, on, n}. Only emoji in the curated set count; a
+// message keeps at most 100 records and 20 different emoji, and up to 50
+// unseen message ids may hold reactions until their message arrives.
+// Reactions never count as unread or notify.
+//
 // Everything from peers is untrusted: it is checked and trimmed before use.
 
 import {joinRoom, selfId} from './vendor/trystero.js'
 import {lookup, validId} from './youtube.js'
 import {PublicRooms} from './public-rooms.js'
 import {remember} from './remembered.js'
+import {merge as mergeReactions, prune as pruneReactions, snapshot as reactionBatches, summarize, toggle as toggleReaction} from './reactions.js'
 
 const APP_ID = 'jukebot-p2p'
 const CHAT_KEEP = 200
@@ -39,6 +57,8 @@ let roomSettings = {public: false, name: '', lobby: '', key: ''}
 let chat = []
 let profile = {userId: '', name: ''}
 const members = new Map() // peerId -> {userId, name}
+const reactors = new Set() // peerIds whose hello said they understand reactions
+const reactions = new Map() // message id -> Map of 'emoji\nuserId' -> record
 const typing = new Map() // peerId -> last ping time
 const presenceAt = new Map()
 let generation = 0
@@ -53,6 +73,8 @@ const num = v => (Number.isFinite(v) && v >= 0 ? v : null)
 const clock = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 const nameOf = peerId => members.get(peerId)?.name || 'someone'
 const messageKey = m => JSON.stringify([m.by, m.name, m.text, m.ts, m.kind, m.tag])
+const hello = () => ({...profile, caps: ['react']})
+const historyOf = () => chat.filter(m => !m.local).slice(-CHAT_HISTORY)
 
 function wire(s) {
   const {at, ...rest} = s
@@ -127,7 +149,7 @@ function join(id, tab, who, own, settings) {
   // relays is encrypted with a secret only invite holders know.
   room = joinRoom({appId: APP_ID, password: id, maxReceiveBytes: RECEIVE_MAX}, id)
   const make = name => room.makeAction(name, {onReceive: ({byteLength}) => byteLength <= RECEIVE_MAX})
-  actions = {state: make('state'), chat: make('chat'), history: make('history'), hello: make('hello'), typing: make('typing'), answer: make('answer'), decision: make('decision')}
+  actions = {state: make('state'), chat: make('chat'), history: make('history'), hello: make('hello'), typing: make('typing'), answer: make('answer'), decision: make('decision'), react: make('react'), reacts: make('reacts')}
 
   actions.answer.onMessage = (data, {peerId}) => publicRooms.decide(data, members.get(peerId) ?? {name: 'someone', userId: ''})
   actions.decision.onMessage = (data, {peerId}) => {
@@ -156,10 +178,21 @@ function join(id, tab, who, own, settings) {
     addChat(msgs, true)
   }
   actions.history.onMessage = msgs => addChat(msgs, false)
+  actions.react.onMessage = (list, {peerId}) => {
+    const userId = members.get(peerId)?.userId
+    if (userId && reactors.has(peerId)) reacted(mergeReactions(reactions, list, userId))
+  }
+  actions.reacts.onMessage = (list, {peerId}) => {
+    if (reactors.has(peerId)) reacted(mergeReactions(reactions, list))
+  }
   actions.hello.onMessage = (data, {peerId}) => {
     const who = {userId: str(data?.userId, 40), name: str(data?.name, 40) || 'someone'}
     const before = members.get(peerId)
     members.set(peerId, who)
+    if (Array.isArray(data?.caps) && data.caps.includes('react') && !reactors.has(peerId)) {
+      reactors.add(peerId)
+      for (const batch of reactionBatches(reactions, historyOf().map(m => m.id))) actions.reacts.send(batch, {target: peerId})
+    }
     if (!before) note(who, 'joined', 'join', peerId)
     else if (before.name !== who.name) note(who, `${before.name} is now ${who.name}`, 'rename', peerId)
     push()
@@ -170,14 +203,15 @@ function join(id, tab, who, own, settings) {
   }
   room.onPeerJoin = peerId => {
     publicRooms.sync()
-    actions.hello.send(profile, {target: peerId})
+    actions.hello.send(hello(), {target: peerId})
     if (state) actions.state.send(wire(state), {target: peerId})
-    const history = chat.filter(m => !m.local).slice(-CHAT_HISTORY)
+    const history = historyOf()
     if (history.length) actions.history.send(history, {target: peerId})
   }
   room.onPeerLeave = peerId => {
     note(members.get(peerId) ?? {userId: '', name: 'someone'}, 'left', 'leave', peerId)
     members.delete(peerId)
+    reactors.delete(peerId)
     typing.delete(peerId)
     push()
   }
@@ -192,6 +226,8 @@ function leave() {
   pendingAdds.clear()
   chat = []
   members.clear()
+  reactors.clear()
+  reactions.clear()
   typing.clear()
   presenceAt.clear()
   clearTimeout(seekTimer)
@@ -221,12 +257,29 @@ function addChat(msgs, live, own = false, local = false) {
     added.push(entry)
   }
   chat = chat.slice(-CHAT_KEEP)
+  pruneReactions(reactions, chat)
   if (own) {
     while (ownMessages.size > 1000) ownMessages.delete(ownMessages.keys().next().value)
     chrome.runtime.sendMessage({to: 'bg', type: 'authored', messages: [...ownMessages]}).catch(() => {})
   }
   if (live && added.length) chrome.runtime.sendMessage({to: 'bg', type: 'incoming', messages: added}).catch(() => {})
   nudge('chat')
+}
+
+function reacted(changed) {
+  if (!changed) return
+  pruneReactions(reactions, chat)
+  nudge('chat')
+}
+
+// Flip this browser's reaction on a chat message (not an activity line).
+function react(id, emoji) {
+  if (!chat.some(m => m.id === id && m.kind !== 'event')) return false
+  const r = toggleReaction(reactions, id, emoji, profile)
+  if (!r) return false
+  if (reactors.size) actions.react.send([r], {target: [...reactors]})
+  nudge('chat')
+  return true
 }
 
 function entry(text, extra) {
@@ -337,6 +390,13 @@ function remove(qid) {
   if (state) update({queue: state.queue.filter(q => q.qid !== qid)})
 }
 
+// The current display name for a userId: yours, or a member's who is here.
+function nameFor(userId) {
+  if (userId === profile.userId) return profile.name
+  for (const m of members.values()) if (m.userId === userId) return m.name
+  return ''
+}
+
 function status() {
   const now = Date.now()
   return {
@@ -348,6 +408,7 @@ function status() {
     knocks: [...publicRooms.knocks.values()],
     knocking: publicRooms.visitor,
     chat,
+    reactions: summarize(reactions, chat.filter(m => m.kind !== 'event').map(m => m.id), nameFor),
     members: [{...profile, self: true}, ...members.values()],
     typing: [...typing].filter(([, t]) => now - t < TYPING_FOR).map(([peerId]) => ({name: nameOf(peerId), userId: members.get(peerId)?.userId ?? ''}))
   }
@@ -404,13 +465,16 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     case 'profile':
       if (fromExtension) {
         profile = {userId: str(msg.userId, 40), name: str(msg.name, 40)}
-        actions?.hello.send(profile)
+        actions?.hello.send(hello())
       }
       reply(true)
       break
     case 'say':
       if (room && fromExtension) say(String(msg.text).slice(0, 1000))
       reply(true)
+      break
+    case 'react':
+      reply(Boolean(room && fromExtension && react(msg.id, msg.emoji)))
       break
     case 'typing':
       if (room && fromExtension) actions.typing.send(1)
