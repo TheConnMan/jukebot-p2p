@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+The popup header shows the extension version next to the name.
+
 A public room you have been in shows Rejoin instead of Knock. Rejoin uses the saved room code, the same way an invite link does, and opens the room's current video. Strangers still knock. The browser keeps the newest 50 of these rooms for 30 days. A full room stays closed. If nobody is left in the room, Rejoin leaves instead of starting an empty one, and the popup says nobody is there.
 
 ## 0.5.2
