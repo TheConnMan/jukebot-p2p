@@ -62,6 +62,7 @@ export class PublicRooms {
         this.knocks.set(knock.id, knock)
         notify()
         chrome.runtime.sendMessage({to: 'bg', type: 'incoming', messages: [{id: knock.id, text: `${knock.name} wants to join`, kind: 'event', tag: 'knock'}]}).catch(() => {})
+        chrome.runtime.sendMessage({to: 'bg', type: 'sound', name: 'knock'}).catch(() => {})
       }
       this.lobby.onPeerLeave = peerId => {
         for (const [id, knock] of this.knocks) if (knock.peerId === peerId) this.knocks.delete(id)

@@ -5,22 +5,26 @@
 // and desktop notifications.
 
 import {videoId} from './youtube.js'
+import {remember} from './remembered.js'
+import {anyWatching, applyFocus, applyWatch, delivery, soundOn, startedWatching} from './notify.js'
 
 const AMBER = '#efb146'
 const RED = '#fb794a'
-const SONG_TAGS = ['add', 'play']
-const PEOPLE_TAGS = ['join', 'leave', 'rename', 'knock']
 
 let creating = null
-const panels = new Set() // open side panel ports; while any is open, chat counts as read
+const panels = new Map() // side panel port to {visible, windowId, focused, minimized}
 let unreadChain = Promise.resolve()
+const soundLog = []
 
 async function ensureOffscreen() {
   if (await chrome.offscreen.hasDocument()) return
   creating ??= chrome.offscreen.createDocument({
     url: 'offscreen.html',
-    reasons: ['WEB_RTC'],
-    justification: 'Keep the peer-to-peer listening room connected.'
+    // WEB_RTC keeps the room up: its lifetime enforcer stays active, so the
+    // AUDIO_PLAYBACK silence timeout cannot close this document.
+    // AUDIO_PLAYBACK is the documented reason for playing sound here.
+    reasons: ['WEB_RTC', 'AUDIO_PLAYBACK'],
+    justification: 'Keep the peer-to-peer listening room connected and play notification sounds.'
   }).finally(() => { creating = null })
   await creating
 }
@@ -112,21 +116,59 @@ async function push({roomId, tabId, state, peers}) {
   await badge()
 }
 
+const shot = () => [...panels.values()].map(panel => ({...panel}))
+
+function publishWatch() {
+  const watch = {open: panels.size, watching: anyWatching(panels.values())}
+  globalThis.watchState = watch
+  chrome.storage.session.set({watch}).catch(() => {})
+}
+
+function noteWatch(before) {
+  publishWatch()
+  if (startedWatching(before, panels.values())) markRead()
+}
+
+async function playSound(name) {
+  const key = name === 'knock' ? 'soundKnock' : 'soundDing'
+  const stored = await chrome.storage.local.get(key)
+  const entry = {name, at: Date.now()}
+  if (!soundOn(stored, name)) {
+    entry.played = false
+    entry.reason = 'off'
+  } else if (!(await chrome.offscreen.hasDocument())) {
+    entry.played = false
+    entry.reason = 'no-offscreen'
+  } else {
+    const result = await toOffscreen({type: 'sound', name}).catch(err => ({error: String(err)}))
+    entry.played = result?.state === 'running' && !result.error
+    entry.state = result?.state ?? null
+    entry.error = result?.error ?? null
+  }
+  soundLog.push(entry)
+  globalThis.soundLog = soundLog
+  chrome.storage.session.set({soundLog: soundLog.slice(-20)}).catch(() => {})
+}
+
 function incoming(messages) {
   unreadChain = unreadChain.then(async () => {
-    if (panels.size) return
-    const chats = messages.filter(m => m.kind !== 'event')
-    const songs = messages.filter(m => m.kind === 'event' && SONG_TAGS.includes(m.tag))
-    const people = messages.filter(m => m.kind === 'event' && PEOPLE_TAGS.includes(m.tag))
+    const open = () => [...panels.values()]
+    if (anyWatching(open())) return
+    const prefs = await chrome.storage.local.get(['notifyChat', 'notifySongs', 'notifyPeople'])
+    const decided = delivery(messages, prefs, open())
+    if (!decided.unread && !decided.notices.length) return
     const {unread = 0} = await chrome.storage.session.get('unread')
-    if (panels.size) return
-    if (chats.length) await chrome.storage.session.set({unread: unread + chats.length})
+    if (anyWatching(open())) return
+    if (decided.unread) await chrome.storage.session.set({unread: unread + decided.unread})
     await badge()
-    const {notifyChat = true, notifySongs = true, notifyPeople = true} = await chrome.storage.local.get(['notifyChat', 'notifySongs', 'notifyPeople'])
-    const show = (m, title) => chrome.notifications.create(`m-${m.id}`, {type: 'basic', iconUrl: 'icon128.png', title, message: m.text}).catch(() => {})
-    const notices = [...(notifyChat ? chats : []), ...(notifySongs ? songs : []), ...(notifyPeople ? people : [])]
-    for (const m of notices.slice(0, 3)) show(m, m.kind === 'event' ? 'JukeBot' : m.name || 'someone')
-    if (notices.length > 3) show({id: crypto.randomUUID(), text: `${notices.length - 3} more messages`}, 'JukeBot')
+    if (!decided.notices.length || anyWatching(open())) return
+    const show = (id, title, message) => chrome.notifications.create(id, {type: 'basic', iconUrl: 'icon128.png', title, message}).then(() => true, () => false)
+    let shown = 0
+    for (const m of decided.notices.slice(0, 3)) {
+      if (await show(`m-${m.id}`, m.kind === 'event' ? 'JukeBot' : m.name || 'someone', m.text)) shown++
+    }
+    if (decided.notices.length > 3 && await show(`m-${crypto.randomUUID()}`, 'JukeBot', `${decided.notices.length - 3} more messages`)) shown++
+    if (shown && decided.sound === 'ding') await playSound('ding')
   }).catch(() => {})
 }
 
@@ -153,6 +195,18 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
   if (msg.type === 'incoming') {
     incoming(msg.messages)
+    return false
+  }
+  if (msg.type === 'sound') {
+    if (!fromOffscreen || msg.name !== 'knock') return false
+    playSound('knock')
+    return false
+  }
+  if (msg.type === 'remember') {
+    if (!fromOffscreen) return false
+    chrome.storage.local.get('rememberedRooms').then(({rememberedRooms}) => {
+      return chrome.storage.local.set({rememberedRooms: remember(rememberedRooms, {lobby: msg.lobby, code: msg.code})})
+    }).catch(() => {})
     return false
   }
   const tabId = fromTab ? sender.tab.id : msg.tabId
@@ -200,9 +254,30 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 
 chrome.runtime.onConnect.addListener(port => {
   if (port.name !== 'sidepanel' || port.sender?.id !== chrome.runtime.id || port.sender?.url !== chrome.runtime.getURL('sidepanel.html')) return
-  panels.add(port)
-  markRead()
-  port.onDisconnect.addListener(() => panels.delete(port))
+  panels.set(port, {visible: false, windowId: null, focused: false, minimized: false})
+  publishWatch()
+  port.onMessage.addListener(msg => {
+    const info = panels.get(port)
+    if (!info) return
+    const before = shot()
+    panels.set(port, applyWatch(info, msg))
+    noteWatch(before)
+  })
+  port.onDisconnect.addListener(() => {
+    const before = shot()
+    panels.delete(port)
+    noteWatch(before)
+  })
+})
+
+chrome.windows.onFocusChanged.addListener(async () => {
+  const before = shot()
+  await Promise.all([...panels.entries()].map(async ([port, info]) => {
+    if (!Number.isInteger(info.windowId)) return
+    const win = await chrome.windows.get(info.windowId).catch(() => null)
+    panels.set(port, applyFocus(info, win))
+  }))
+  noteWatch(before)
 })
 
 chrome.tabs.onReplaced.addListener(async (addedTabId, removedTabId) => {

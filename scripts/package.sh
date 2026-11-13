@@ -18,6 +18,8 @@ SHIPPED=(
   public-rooms.js
   remembered.js
   reactions.js
+  notify.js
+  sounds.js
   vendor/trystero.js
   icon16.png
   icon48.png
