@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Desktop notifications and the unread count now stay quiet only while the side panel is visible in the focused window. An open panel that is hidden, or in an unfocused or minimized window, notifies again and counts unread chat. Looking at the panel clears the unread count.
+
+A knock plays a short knock sound whether or not you are looking at the panel. Showing a desktop notification plays one ding for that batch. A knock's notification plays the knock only, with no ding. Both sounds are synthesized, on by default, and have their own switches in the Notify row. The knock sound is separate from the people notification switch.
+
+Listing a room saves it for Rejoin from the service worker. The offscreen document has no extension storage, and writing the list from there threw when a room was listed.
+
 Joining from a tab that is not on youtube.com or music.youtube.com opens a new tab and leaves the original tab alone. Joining from either of those sites still uses the tab you are on. That covers a pasted room code, an invite link, Rejoin, and being let into a public room. An invite link you open yourself is unchanged.
 
 While you are in a room, the side panel is on only the tab that plays for the room. Switching to another tab hides it, and switching back shows it again. Open chat from another tab switches to the room tab and opens the panel there. With no room joined, the panel stays available on every tab.

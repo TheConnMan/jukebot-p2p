@@ -36,7 +36,7 @@
 import {joinRoom, selfId} from './vendor/trystero.js'
 import {lookup, validId} from './youtube.js'
 import {PublicRooms} from './public-rooms.js'
-import {remember} from './remembered.js'
+import {play} from './sounds.js'
 import {merge as mergeReactions, prune as pruneReactions, snapshot as reactionBatches, summarize, toggle as toggleReaction} from './reactions.js'
 
 const APP_ID = 'jukebot-p2p'
@@ -118,10 +118,8 @@ function rememberPublic() {
   const key = `${state.lobby}\n${roomId}`
   if (key === rememberedKey) return
   rememberedKey = key
-  chrome.storage.local.get('rememberedRooms').then(({rememberedRooms}) => {
-    if (`${state?.lobby}\n${roomId}` !== key) return
-    return chrome.storage.local.set({rememberedRooms: remember(rememberedRooms, {lobby: state.lobby, code: roomId})})
-  }).catch(() => {})
+  // Offscreen documents have no chrome.storage. The service worker keeps the list.
+  chrome.runtime.sendMessage({to: 'bg', type: 'remember', lobby: state.lobby, code: roomId}).catch(() => {})
 }
 
 function push() {
@@ -505,6 +503,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     case 'hello':
       reply({inRoom: room != null, roomId, state, peers: members.size})
       break
+    case 'sound':
+      if (!room || (msg.name !== 'knock' && msg.name !== 'ding')) reply({error: 'no-room'})
+      else play(msg.name).then(reply, err => reply({error: String(err)}))
+      return true
     case 'update':
       // A start seed never replaces state that already arrived: a later
       // higher rev still wins
