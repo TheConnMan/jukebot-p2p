@@ -5,6 +5,7 @@
 // and desktop notifications.
 
 import {videoId} from './youtube.js'
+import {panelOptions, roomHost, watchUrl} from './room-tab.js'
 
 const AMBER = '#efb146'
 const RED = '#fb794a'
@@ -53,11 +54,37 @@ async function join(roomId, tabId, settings) {
   // Only one tab plays for the room; the one it moves away from stops syncing.
   if (before?.tabId != null && before.tabId !== tabId) chrome.tabs.sendMessage(before.tabId, {type: 'left'}).catch(() => {})
   const {ownMessages = []} = await chrome.storage.session.get('ownMessages')
-  return toOffscreen({type: 'join', roomId, tabId, profile: await profile(), ownMessages, settings})
+  const result = await toOffscreen({type: 'join', roomId, tabId, profile: await profile(), ownMessages, settings})
+  if (result?.roomId) await syncPanel(tabId)
+  return result
 }
 
-// Navigate a tab and resolve once the new page has started loading (or after 10 seconds).
-function openWatch(tabId, url) {
+const PANEL_TABS = 'panelTabs'
+
+async function pinnedTabs() {
+  const stored = await chrome.storage.session.get(PANEL_TABS)
+  return Array.isArray(stored[PANEL_TABS]) ? stored[PANEL_TABS] : []
+}
+
+// Default off while a room is open, on for the room tab only. No room: the
+// default is on again, so the panel can be opened from any tab.
+async function syncPanel(roomTabId) {
+  const plan = panelOptions({roomTabId: roomTabId ?? null, pinned: await pinnedTabs()})
+  for (const options of plan.set) await chrome.sidePanel.setOptions(options).catch(() => {})
+  await chrome.storage.session.set({[PANEL_TABS]: plan.pinned})
+}
+
+function matchesWatch(tabUrl, want) {
+  try {
+    const now = new URL(tabUrl ?? 'about:blank')
+    return now.host === want.host && now.pathname === want.pathname && now.searchParams.get('v') === want.searchParams.get('v')
+  } catch {
+    return false
+  }
+}
+
+// Resolve once the tab is on this watch page (or after 10 seconds).
+function waitForWatch(tabId, url) {
   const want = new URL(url)
   return new Promise(resolve => {
     const done = () => {
@@ -67,13 +94,31 @@ function openWatch(tabId, url) {
     }
     const listener = (id, info, tab) => {
       if (id !== tabId || (!info.url && info.status !== 'loading')) return
-      const now = new URL(tab.url ?? 'about:blank')
-      if (now.host === want.host && now.pathname === want.pathname && now.searchParams.get('v') === want.searchParams.get('v')) done()
+      if (matchesWatch(tab.url, want)) done()
     }
     const timer = setTimeout(done, 10000)
     chrome.tabs.onUpdated.addListener(listener)
-    chrome.tabs.update(tabId, {url}).catch(done)
+    chrome.tabs.get(tabId).then(tab => {
+      if (matchesWatch(tab.url, want)) done()
+    }).catch(done)
   })
+}
+
+function openWatch(tabId, url) {
+  const pending = waitForWatch(tabId, url)
+  chrome.tabs.update(tabId, {url}).catch(() => {})
+  return pending
+}
+
+// A YouTube tab becomes the room. Any other tab stays put and a new tab opens.
+async function placeWatch(tab, url) {
+  if (roomHost(tab?.url)) {
+    await openWatch(tab.id, url)
+    return tab.id
+  }
+  const created = await chrome.tabs.create({url, active: true})
+  await waitForWatch(created.id, url)
+  return created.id
 }
 
 async function leave(expectedTabId) {
@@ -81,6 +126,7 @@ async function leave(expectedTabId) {
   if (!s || (expectedTabId != null && s.tabId !== expectedTabId)) return
   await toOffscreen({type: 'leave'})
   await chrome.offscreen.closeDocument()
+  await syncPanel(null)
   await chrome.storage.session.set({unread: 0, peers: null})
   await badge()
   chrome.runtime.sendMessage({to: 'chat', type: 'chat'}).catch(() => {})
@@ -164,19 +210,21 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     },
     // Letting someone in was the confirmation, so join here instead of through
     // an invite link: open the room's video where the room plays it, and join
-    // once that page has committed. Joining first would let the old page's
+    // once that page has committed. A tab that is not on YouTube stays put and
+    // the video opens in a new tab. Joining first would let the old page's
     // content script follow the room and navigate away from the new URL.
     admitted: async () => {
-      await chrome.tabs.get(tabId)
-      await openWatch(tabId, `https://${msg.site}/watch?v=${encodeURIComponent(msg.v)}&t=${Math.floor(msg.t)}s`)
-      return join(msg.code, tabId)
+      const tab = await chrome.tabs.get(tabId)
+      const url = watchUrl(msg.site, msg.v, msg.t)
+      if (!url) return {error: 'That room is not on YouTube.'}
+      const targetId = await placeWatch(tab, url)
+      return join(msg.code, targetId)
     },
     // The site the room's tab is on, for a visitor who is being let in.
     site: async () => {
       const s = await status()
       const tab = s?.tabId != null ? await chrome.tabs.get(s.tabId).catch(() => null) : null
-      const host = tab?.url ? new URL(tab.url).host : ''
-      return ['www.youtube.com', 'music.youtube.com'].includes(host) ? host : 'www.youtube.com'
+      return roomHost(tab?.url) ?? 'www.youtube.com'
     },
     leave,
     // A rejoin found no peers before this tab could become the room. Same
@@ -207,6 +255,8 @@ chrome.runtime.onConnect.addListener(port => {
 
 chrome.tabs.onReplaced.addListener(async (addedTabId, removedTabId) => {
   if (await chrome.offscreen.hasDocument()) await toOffscreen({type: 'rebind', oldTabId: removedTabId, tabId: addedTabId})
+  const s = await status()
+  if (s?.tabId === addedTabId) await syncPanel(addedTabId)
 })
 
 chrome.tabs.onRemoved.addListener(tabId => {

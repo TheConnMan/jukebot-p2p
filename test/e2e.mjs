@@ -248,13 +248,18 @@ async function publicScenario() {
       const [a, b, c] = await Promise.all([status(popA), status(popB), status(popC)])
       return {ok: c?.roomId === started.roomId && c.state?.public && c.peers === 2 && a.peers === 2 && b.peers === 2 && !a.knocks.length && !b.knocks.length, info: {roomId: c?.roomId, members: c?.members}}
     })
-    // After Let in the visitor's tab joins with no confirm and sits on the
-    // room's current video, on the site the room plays on, at its position.
+    // After Let in the visitor joins with no confirm and sits on the room's
+    // current video, on the site the room plays on, at its position. A knock
+    // from a tab that is not YouTube opens that video in a new tab.
     const lands = async (label, name) => {
-      await C.page.bringToFront()
       await until(label, async () => {
-        const [a, c, p] = await Promise.all([status(popA), status(popC), player(C.page)])
-        const url = new URL(C.page.url())
+        const [a, c] = await Promise.all([status(popA), status(popC)])
+        const tab = c?.tabId == null ? null : await popC.evaluate(async id => chrome.tabs.get(id).then(t => t.url).catch(() => null), c.tabId)
+        const roomPage = tab ? (await C.browser.pages()).find(p => p.url() === tab) : null
+        if (!roomPage) return {ok: false, info: {tabId: c?.tabId, tab, pages: (await C.browser.pages()).map(p => p.url())}}
+        await roomPage.bringToFront()
+        const p = await player(roomPage)
+        const url = new URL(roomPage.url())
         const want = c.state ? c.state.pos + (c.state.playing ? (Date.now() - c.state.at) / 1000 : 0) : null
         const ok = c.roomId === started.roomId && c.state?.v === a.state.v && url.host === SITE && url.pathname === '/watch' &&
           url.searchParams.get('v') === a.state.v && p.host === SITE && p.v === a.state.v && p.ready && !p.ad && !p.error &&
