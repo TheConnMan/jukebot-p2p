@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1
 
 Desktop notifications and the unread count now stay quiet only while the side panel is visible in the focused window. An open panel that is hidden, or in an unfocused or minimized window, notifies again and counts unread chat. Looking at the panel clears the unread count.
 
