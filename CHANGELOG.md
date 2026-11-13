@@ -8,6 +8,10 @@ A knock plays a short knock sound whether or not you are looking at the panel. S
 
 Listing a room saves it for Rejoin from the service worker. The offscreen document has no extension storage, and writing the list from there threw when a room was listed.
 
+Joining from a tab that is not on youtube.com or music.youtube.com opens a new tab and leaves the original tab alone. Joining from either of those sites still uses the tab you are on. That covers a pasted room code, an invite link, Rejoin, and being let into a public room. An invite link you open yourself is unchanged.
+
+While you are in a room, the side panel is on only the tab that plays for the room. Switching to another tab hides it, and switching back shows it again. Open chat from another tab switches to the room tab and opens the panel there. With no room joined, the panel stays available on every tab.
+
 ## 0.6.0
 
 Fixes browsing away from the room's video (issue #7). Going to Home, search or your library while in a room no longer pulls the tab back to the video every few seconds, which on YouTube Music meant an endless "Leave site?" prompt. If the room moves to another video while you browse, the tab goes there once, and if you cancel the prompt it is not asked again for that video. When the room's song ends in YouTube Music's player bar while you browse, the room's queue still moves on.

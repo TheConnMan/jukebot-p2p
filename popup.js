@@ -1,11 +1,10 @@
 import {videoId as watchVid} from './youtube.js'
 import {directory} from './directory.js'
 import {codeFor, roomAction} from './remembered.js'
+import {roomNavigation} from './room-tab.js'
 
 const $ = id => document.getElementById(id)
 $('ver').textContent = 'v' + chrome.runtime.getManifest().version
-const HOSTS = ['www.youtube.com', 'music.youtube.com']
-
 let tab = null
 let status = null
 let roomsLoaded = false
@@ -119,16 +118,10 @@ $('start').onclick = async () => {
 // script joins and, once the room sends its video, opens that video. A rejoin
 // adds rejoin=1 so the tab leaves instead of seeding an empty room.
 async function openRoom(text, rejoin = false) {
-  let url
-  try {
-    url = new URL(text)
-    if (!HOSTS.includes(url.host) || !url.hash.includes('jukebot=')) return showError('That is not a JukeBot invite link.')
-  } catch {
-    const here = watchVid(tab?.url) || HOSTS.includes(new URL(tab?.url ?? 'about:blank').host)
-    url = new URL(here ? tab.url : 'https://music.youtube.com/')
-    url.hash = `jukebot=${encodeURIComponent(text)}${rejoin ? '&rejoin=1' : ''}`
-  }
-  await chrome.tabs.update(tab.id, {url: url.href})
+  const nav = roomNavigation({tabUrl: tab?.url, text, rejoin})
+  if (nav.error) return showError(nav.error)
+  if (nav.reuse) await chrome.tabs.update(tab.id, {url: nav.url})
+  else await chrome.tabs.create({url: nav.url, active: true})
   window.close()
 }
 
@@ -150,7 +143,16 @@ $('add').onclick = async () => {
 $('skip').onclick = () => chrome.runtime.sendMessage({to: 'offscreen', type: 'skip'})
 
 $('chat').onclick = async () => {
-  await chrome.sidePanel.open({windowId: tab.windowId})
+  // open() has to run from this click. A room tab opens only there; with no
+  // room, the active tab opens the global panel, which is available everywhere.
+  const roomTabId = status?.tabId
+  if (roomTabId != null) {
+    const opened = chrome.sidePanel.open({tabId: roomTabId})
+    if (roomTabId !== tab?.id) chrome.tabs.update(roomTabId, {active: true}).catch(() => {})
+    await opened.catch(() => {})
+  } else if (tab?.id != null) {
+    await chrome.sidePanel.open({tabId: tab.id}).catch(() => {})
+  }
   window.close()
 }
 
