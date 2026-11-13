@@ -32,10 +32,32 @@ function person(name, id, self = id === userId) {
   return el('span', `who ${hue(id)}`, `${name || 'someone'}${self ? ' (you)' : ''}`)
 }
 
-// While this port is open the service worker treats chat as read and holds
-// back desktop notifications. Reconnect if the worker restarts.
+// The service worker treats chat as read only while this document is visible
+// and its window is focused. Reconnect if the worker restarts.
+let panelPort = null
+
 function connect() {
-  chrome.runtime.connect({name: 'sidepanel'}).onDisconnect.addListener(() => setTimeout(connect, 1000))
+  panelPort = chrome.runtime.connect({name: 'sidepanel'})
+  panelPort.onDisconnect.addListener(() => {
+    panelPort = null
+    setTimeout(connect, 1000)
+  })
+  reportWatch()
+}
+
+async function reportWatch() {
+  const port = panelPort
+  if (!port) return
+  const win = await chrome.windows.getCurrent().catch(() => null)
+  if (port !== panelPort) return
+  try {
+    port.postMessage({
+      visible: document.visibilityState === 'visible',
+      windowId: win?.id ?? null,
+      focused: win?.focused === true,
+      minimized: win?.state === 'minimized'
+    })
+  } catch {}
 }
 
 function el(tag, className, text) {
@@ -317,7 +339,7 @@ addEventListener('resize', placePicker)
 
 $('name').onchange = () => bg({type: 'setName', name: $('name').value})
 
-for (const [id, key] of [['notify-chat', 'notifyChat'], ['notify-songs', 'notifySongs'], ['notify-people', 'notifyPeople']]) {
+for (const [id, key] of [['notify-chat', 'notifyChat'], ['notify-songs', 'notifySongs'], ['notify-people', 'notifyPeople'], ['sound-knock', 'soundKnock'], ['sound-ding', 'soundDing']]) {
   chrome.storage.local.get(key).then(stored => { $(id).checked = stored[key] !== false })
   $(id).onchange = () => chrome.storage.local.set({[key]: $(id).checked})
 }
@@ -329,6 +351,9 @@ chrome.runtime.onMessage.addListener(msg => {
 
 // Keeps the "plays at" times and the playback clock current.
 setInterval(() => { if (!document.hidden) refresh() }, 2000)
+
+document.addEventListener('visibilitychange', () => reportWatch())
+chrome.windows.onFocusChanged.addListener(() => reportWatch())
 
 connect()
 bg({type: 'profile'}).then(p => {

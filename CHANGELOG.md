@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Desktop notifications and the unread count now stay quiet only while the side panel is visible in the focused window. An open panel that is hidden, or in an unfocused or minimized window, notifies again and counts unread chat. Looking at the panel clears the unread count.
+
+A knock plays a short knock sound whether or not you are looking at the panel. Showing a desktop notification plays one ding for that batch. A knock's notification plays the knock only, with no ding. Both sounds are synthesized, on by default, and have their own switches in the Notify row. The knock sound is separate from the people notification switch.
+
+Listing a room saves it for Rejoin from the service worker. The offscreen document has no extension storage, and writing the list from there threw when a room was listed.
+
 ## 0.6.0
 
 Fixes browsing away from the room's video (issue #7). Going to Home, search or your library while in a room no longer pulls the tab back to the video every few seconds, which on YouTube Music meant an endless "Leave site?" prompt. If the room moves to another video while you browse, the tab goes there once, and if you cancel the prompt it is not asked again for that video. When the room's song ends in YouTube Music's player bar while you browse, the room's queue still moves on.

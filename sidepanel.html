@@ -77,7 +77,7 @@
   button.primary{color:var(--acc);border-color:var(--acc)}
   button.x{padding:0 4px;border:0;color:var(--dim2)}
   button:disabled{color:var(--dim2);border-color:var(--line);cursor:default}
-  .toggles{display:flex;gap:12px;align-items:center;padding:6px 12px;border-top:1px solid var(--line2);font-size:11px;color:var(--dim)}
+  .toggles{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;padding:6px 12px;border-top:1px solid var(--line2);font-size:11px;color:var(--dim)}
   .toggles label{display:flex;gap:4px;align-items:center;cursor:pointer}
   #knocks{flex:0 0 auto;max-height:30vh;overflow-y:auto}
   .knock{padding:10px 12px;border-bottom:1px solid var(--line)}
@@ -125,6 +125,8 @@
   <label><input type="checkbox" id="notify-chat"> chat</label>
   <label><input type="checkbox" id="notify-songs"> songs</label>
   <label><input type="checkbox" id="notify-people"> people</label>
+  <label><input type="checkbox" id="sound-knock"> knock sound</label>
+  <label><input type="checkbox" id="sound-ding"> ding</label>
 </div>
 <script type="module" src="sidepanel.js"></script>
 </body>
