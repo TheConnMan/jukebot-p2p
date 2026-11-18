@@ -32,6 +32,9 @@
   .head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}
   #now{display:flex;gap:8px;font-size:12px;margin-bottom:4px}
   #now-clock{flex:0 0 auto;color:var(--dim2);font-variant-numeric:tabular-nums}
+  .head .actions{display:flex;gap:6px}
+  #up.collapsed li:nth-child(n+2),#up.collapsed #queue-empty{display:none}
+  #more{font-size:11px;color:var(--dim2);padding:2px 0 0}
   ol{margin:0;padding:0;list-style:none;max-height:30vh;overflow-y:auto}
   li{display:flex;gap:6px;align-items:flex-start;padding:4px 0;border-bottom:1px solid var(--line2)}
   li .body{flex:1;min-width:0}
@@ -97,10 +100,11 @@
 <section id="up" hidden>
   <div class="head">
     <span class="label">Up next</span>
-    <button id="skip" class="primary">Skip</button>
+    <span class="actions"><button id="fold" type="button" aria-controls="queue" aria-expanded="true">Collapse</button><button id="skip" class="primary">Skip</button></span>
   </div>
   <div id="now" class="dim"><span id="now-title" class="one"></span><span id="now-clock"></span></div>
   <ol id="queue"></ol>
+  <div id="more" hidden></div>
   <p id="queue-empty" class="empty" style="font-size:12px">Queue is empty. Right-click any YouTube link to add it, or paste one below.</p>
   <form id="add-form">
     <input id="link" placeholder="Add a YouTube link" autocomplete="off">
