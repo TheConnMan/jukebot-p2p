@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.2
 
 The Up next list in the side panel can collapse to the now-playing line and the first queued item, with a "+N more" note. It collapses on its own when the panel is shorter than 800px so chat gets the room, and a Collapse or Show all button in its header overrides that until the panel crosses the threshold again. The choice is not saved.
 
