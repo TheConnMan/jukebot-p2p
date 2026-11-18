@@ -1,4 +1,5 @@
 import {GRID, QUICK} from './reactions.js'
+import {collapsed, labels, resized, toggled} from './up-next.js'
 
 const $ = id => document.getElementById(id)
 
@@ -11,6 +12,8 @@ let shownLog = ''
 let shownQueue = ''
 let shownKnocks = ''
 let reactions = {}
+let upState = resized({short: false, manual: null}, innerHeight)
+let queueLength = 0
 let picking = null // {id, button} while the reaction picker is open
 
 const bg = msg => chrome.runtime.sendMessage({to: 'bg', ...msg})
@@ -210,6 +213,8 @@ function startTimes(state) {
 function renderQueue(state) {
   const queue = state?.queue ?? []
   const starts = state ? startTimes(state) : []
+  queueLength = queue.length
+  renderUp()
   const key = JSON.stringify([queue, starts.map(t => t && time(t))])
   if (key === shownQueue) return
   shownQueue = key
@@ -230,6 +235,15 @@ function renderQueue(state) {
   }))
   $('queue-empty').hidden = queue.length > 0
   $('skip').disabled = queue.length === 0
+}
+
+function renderUp() {
+  const {toggle, more} = labels(upState, queueLength)
+  $('up').classList.toggle('collapsed', collapsed(upState))
+  $('fold').textContent = toggle
+  $('fold').setAttribute('aria-expanded', String(!collapsed(upState)))
+  $('more').textContent = more
+  $('more').hidden = !more
 }
 
 function renderKnocks(knocks, count) {
@@ -321,6 +335,15 @@ $('add-form').onsubmit = async e => {
   showError(r?.error ?? '')
   if (!r?.error) $('link').value = ''
 }
+
+$('fold').onclick = () => {
+  upState = toggled(upState)
+  renderUp()
+}
+addEventListener('resize', () => {
+  upState = resized(upState, innerHeight)
+  renderUp()
+})
 
 $('skip').onclick = () => offscreen({type: 'skip'})
 
