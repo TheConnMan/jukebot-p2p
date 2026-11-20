@@ -1,4 +1,5 @@
 import {GRID, QUICK} from './reactions.js'
+import {IDLE_CHOICES, idleSeconds} from './idle.js'
 import {collapsed, labels, resized, toggled} from './up-next.js'
 
 const $ = id => document.getElementById(id)
@@ -366,6 +367,10 @@ for (const [id, key] of [['notify-chat', 'notifyChat'], ['notify-songs', 'notify
   chrome.storage.local.get(key).then(stored => { $(id).checked = stored[key] !== false })
   $(id).onchange = () => chrome.storage.local.set({[key]: $(id).checked})
 }
+
+for (const [seconds, label] of IDLE_CHOICES) $('idle-after').add(new Option(label, seconds))
+chrome.storage.local.get('idleAfter').then(stored => { $('idle-after').value = idleSeconds(stored.idleAfter) })
+$('idle-after').onchange = () => chrome.storage.local.set({idleAfter: idleSeconds(Number($('idle-after').value))})
 
 chrome.runtime.onMessage.addListener(msg => {
   if (msg.type === 'chat' || msg.type === 'typing' || msg.type === 'push' || msg.type === 'knocks') refresh()

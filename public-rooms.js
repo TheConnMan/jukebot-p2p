@@ -83,11 +83,24 @@ export class PublicRooms {
   }
 
   publish(force = false) {
-    const {state, peers} = this.current()
+    const {state, peers, idle} = this.current()
     if (!this.listing || !state?.public || this.leader() !== selfId) {
       this.sent = ''
+      this.unlisted = false
       return
     }
+    // An idle room stays public but off the list until a member is active
+    // again. The lobby stays joined: staying costs nothing and a new leader
+    // needs no rejoin.
+    if (idle) {
+      this.sent = ''
+      if (!this.unlisted) {
+        this.unlisted = true
+        this.request(`/rooms/${this.listing.key}`, {method: 'DELETE'})
+      }
+      return
+    }
+    this.unlisted = false
     const data = {key: state.key, lobby: state.lobby, name: state.name || 'Unnamed room', title: state.title, count: Math.min(LIMIT, peers.length + 1)}
     const signature = JSON.stringify(data)
     if (!force && signature === this.sent) return
@@ -99,6 +112,7 @@ export class PublicRooms {
     const listing = this.listing
     this.listing = null
     this.sent = ''
+    this.unlisted = false
     this.lobby?.leave()
     this.lobby = null
     this.knocks.clear()

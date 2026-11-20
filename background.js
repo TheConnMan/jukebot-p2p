@@ -5,6 +5,7 @@
 // and desktop notifications.
 
 import {videoId} from './youtube.js'
+import {idleSeconds, isIdle} from './idle.js'
 import {remember} from './remembered.js'
 import {anyWatching, applyFocus, applyWatch, delivery, soundOn, startedWatching} from './notify.js'
 import {panelOptions, roomHost, watchUrl} from './room-tab.js'
@@ -32,6 +33,21 @@ async function ensureOffscreen() {
 
 const toOffscreen = msg => chrome.runtime.sendMessage({to: 'offscreen', ...msg})
 
+// Whether this machine is idle by the user's setting. The offscreen document
+// has no chrome.idle or chrome.storage, so it is told from here.
+async function idleNow() {
+  const {idleAfter} = await chrome.storage.local.get('idleAfter')
+  const seconds = idleSeconds(idleAfter)
+  return seconds > 0 && isIdle(await chrome.idle.queryState(seconds))
+}
+
+async function applyIdle() {
+  const {idleAfter} = await chrome.storage.local.get('idleAfter')
+  const seconds = idleSeconds(idleAfter)
+  if (seconds) chrome.idle.setDetectionInterval(seconds)
+  if (await chrome.offscreen.hasDocument()) await toOffscreen({type: 'idle', idle: await idleNow()})
+}
+
 async function profile() {
   const stored = await chrome.storage.local.get(['name', 'userId'])
   const p = {name: stored.name || `friend-${Math.random().toString(16).slice(2, 6)}`, userId: stored.userId || crypto.randomUUID()}
@@ -58,7 +74,7 @@ async function join(roomId, tabId, settings) {
   // Only one tab plays for the room; the one it moves away from stops syncing.
   if (before?.tabId != null && before.tabId !== tabId) chrome.tabs.sendMessage(before.tabId, {type: 'left'}).catch(() => {})
   const {ownMessages = []} = await chrome.storage.session.get('ownMessages')
-  const result = await toOffscreen({type: 'join', roomId, tabId, profile: await profile(), ownMessages, settings})
+  const result = await toOffscreen({type: 'join', roomId, tabId, profile: await profile(), ownMessages, settings, idle: await idleNow()})
   if (result?.roomId) await syncPanel(tabId)
   return result
 }
@@ -337,6 +353,12 @@ chrome.tabs.onReplaced.addListener(async (addedTabId, removedTabId) => {
 chrome.tabs.onRemoved.addListener(tabId => {
   leave(tabId)
 })
+
+chrome.idle.onStateChanged.addListener(() => applyIdle().catch(() => {}))
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.idleAfter) applyIdle().catch(() => {})
+})
+applyIdle().catch(() => {})
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {

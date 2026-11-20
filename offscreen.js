@@ -31,11 +31,17 @@
 // unseen message ids may hold reactions until their message arrives.
 // Reactions never count as unread or notify.
 //
+// Idle state (idle.js) rides on one action, idle: true or false, sent only to
+// peers whose hello said caps: ['idle'] for the same reason. A peer that did
+// not say so counts as active. When every member is idle the public listing
+// is taken down (public-rooms.js).
+//
 // Everything from peers is untrusted: it is checked and trimmed before use.
 
 import {joinRoom, selfId} from './vendor/trystero.js'
 import {lookup, validId} from './youtube.js'
 import {PublicRooms} from './public-rooms.js'
+import {hasCap, roomIdle} from './idle.js'
 import {play} from './sounds.js'
 import {merge as mergeReactions, prune as pruneReactions, snapshot as reactionBatches, summarize, toggle as toggleReaction} from './reactions.js'
 
@@ -58,6 +64,9 @@ let chat = []
 let profile = {userId: '', name: ''}
 const members = new Map() // peerId -> {userId, name}
 const reactors = new Set() // peerIds whose hello said they understand reactions
+const idlers = new Set() // peerIds whose hello said they share idle state
+const idlePeers = new Set() // idlers that last said they are idle
+let selfIdle = false // set by the service worker, which has chrome.idle
 const reactions = new Map() // message id -> Map of 'emoji\nuserId' -> record
 const typing = new Map() // peerId -> last ping time
 const presenceAt = new Map()
@@ -73,7 +82,7 @@ const num = v => (Number.isFinite(v) && v >= 0 ? v : null)
 const clock = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 const nameOf = peerId => members.get(peerId)?.name || 'someone'
 const messageKey = m => JSON.stringify([m.by, m.name, m.text, m.ts, m.kind, m.tag])
-const hello = () => ({...profile, caps: ['react']})
+const hello = () => ({...profile, caps: ['react', 'idle']})
 const historyOf = () => chat.filter(m => !m.local).slice(-CHAT_HISTORY)
 
 function wire(s) {
@@ -147,7 +156,7 @@ function join(id, tab, who, own, settings) {
   // relays is encrypted with a secret only invite holders know.
   room = joinRoom({appId: APP_ID, password: id, maxReceiveBytes: RECEIVE_MAX}, id)
   const make = name => room.makeAction(name, {onReceive: ({byteLength}) => byteLength <= RECEIVE_MAX})
-  actions = {state: make('state'), chat: make('chat'), history: make('history'), hello: make('hello'), typing: make('typing'), answer: make('answer'), decision: make('decision'), react: make('react'), reacts: make('reacts')}
+  actions = {state: make('state'), chat: make('chat'), history: make('history'), hello: make('hello'), typing: make('typing'), answer: make('answer'), decision: make('decision'), react: make('react'), reacts: make('reacts'), idle: make('idle')}
 
   actions.answer.onMessage = (data, {peerId}) => publicRooms.decide(data, members.get(peerId) ?? {name: 'someone', userId: ''})
   actions.decision.onMessage = (data, {peerId}) => {
@@ -183,6 +192,12 @@ function join(id, tab, who, own, settings) {
   actions.reacts.onMessage = (list, {peerId}) => {
     if (reactors.has(peerId)) reacted(mergeReactions(reactions, list))
   }
+  actions.idle.onMessage = (data, {peerId}) => {
+    if (!idlers.has(peerId)) return
+    if (data === true) idlePeers.add(peerId)
+    else idlePeers.delete(peerId)
+    publicRooms.sync()
+  }
   actions.hello.onMessage = (data, {peerId}) => {
     const who = {userId: str(data?.userId, 40), name: str(data?.name, 40) || 'someone'}
     const before = members.get(peerId)
@@ -190,6 +205,10 @@ function join(id, tab, who, own, settings) {
     if (Array.isArray(data?.caps) && data.caps.includes('react') && !reactors.has(peerId)) {
       reactors.add(peerId)
       for (const batch of reactionBatches(reactions, historyOf().map(m => m.id))) actions.reacts.send(batch, {target: peerId})
+    }
+    if (hasCap(data, 'idle') && !idlers.has(peerId)) {
+      idlers.add(peerId)
+      actions.idle.send(selfIdle, {target: peerId})
     }
     if (!before) note(who, 'joined', 'join', peerId)
     else if (before.name !== who.name) note(who, `${before.name} is now ${who.name}`, 'rename', peerId)
@@ -210,6 +229,8 @@ function join(id, tab, who, own, settings) {
     note(members.get(peerId) ?? {userId: '', name: 'someone'}, 'left', 'leave', peerId)
     members.delete(peerId)
     reactors.delete(peerId)
+    idlers.delete(peerId)
+    idlePeers.delete(peerId)
     typing.delete(peerId)
     push()
   }
@@ -225,6 +246,8 @@ function leave() {
   chat = []
   members.clear()
   reactors.clear()
+  idlers.clear()
+  idlePeers.clear()
   reactions.clear()
   typing.clear()
   presenceAt.clear()
@@ -413,7 +436,10 @@ function status() {
 }
 
 const publicRooms = new PublicRooms(
-  () => ({roomId, state, profile, peers: Object.keys(room?.getPeers() ?? {})}),
+  () => {
+    const peers = Object.keys(room?.getPeers() ?? {})
+    return {roomId, state, profile, peers, idle: roomIdle(selfIdle, peers, idlePeers)}
+  },
   (data, leader) => {
     if (leader === selfId) publicRooms.decide(data, profile)
     else actions.answer.send(data, {target: leader})
@@ -437,12 +463,21 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (['hello', 'update'].includes(msg.type) ? !fromRoomTab : !fromExtension) return false
   switch (msg.type) {
     case 'join':
+      selfIdle = msg.idle === true
       join(msg.roomId, msg.tabId, msg.profile, msg.ownMessages, msg.settings)
       reply(status())
       break
     case 'leave':
       leave().then(() => reply(true))
       return true
+    case 'idle':
+      if ((msg.idle === true) !== selfIdle) {
+        selfIdle = msg.idle === true
+        if (idlers.size) actions.idle.send(selfIdle, {target: [...idlers]})
+        publicRooms.sync()
+      }
+      reply(true)
+      break
     case 'public':
       reply(room && state ? update({public: msg.public === true, lobby: state.lobby || crypto.randomUUID(), key: state.key || crypto.randomUUID()}, 'meta') : false)
       break

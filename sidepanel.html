@@ -83,6 +83,7 @@
   button:disabled{color:var(--dim2);border-color:var(--line);cursor:default}
   .toggles{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;padding:6px 12px;border-top:1px solid var(--line2);font-size:11px;color:var(--dim)}
   .toggles label{display:flex;gap:4px;align-items:center;cursor:pointer}
+  .toggles select{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:2px;padding:2px 4px;font:11px var(--mono)}
   #knocks{flex:0 0 auto;max-height:30vh;overflow-y:auto}
   .knock{padding:10px 12px;border-bottom:1px solid var(--line)}
   .knock .meta{font-size:11px;color:var(--dim2);margin:2px 0 8px}
@@ -132,6 +133,7 @@
   <label><input type="checkbox" id="notify-people"> people</label>
   <label><input type="checkbox" id="sound-knock"> knock sound</label>
   <label><input type="checkbox" id="sound-ding"> ding</label>
+  <label>Unlist public room after everyone is idle for <select id="idle-after"></select></label>
 </div>
 <script type="module" src="sidepanel.js"></script>
 </body>
