@@ -5,6 +5,10 @@ import {validId} from './youtube.js'
 const SITES = ['www.youtube.com', 'music.youtube.com']
 const LIMIT = 12
 const KNOCK_FOR = 2 * 60 * 1000
+// One open knock per lobby peer, and at most this many open in the room.
+// A flood of new peer ids can fill the cap and block a real knock until the
+// open ones expire. That is accepted.
+const MAX_OPEN_KNOCKS = 5
 const code = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{24,80}$/.test(value)
 const text = value => typeof value === 'string' ? value.slice(0, 40) : 'someone'
 const notify = () => chrome.runtime.sendMessage({to: 'chat', type: 'knocks'}).catch(() => {})
@@ -68,6 +72,8 @@ export class PublicRooms {
       this.replyAction = this.lobby.makeAction('reply')
       this.knockAction.onMessage = (data, {peerId}) => {
         if (!code(data?.id) || this.settled.has(data.id) || this.knocks.has(data.id)) return
+        const open = [...this.knocks.values()].filter(knock => knock.until > Date.now())
+        if (open.some(knock => knock.peerId === peerId) || open.length >= MAX_OPEN_KNOCKS) return
         const knock = {id: data.id, peerId, name: text(data.name), until: Date.now() + KNOCK_FOR}
         this.knocks.set(knock.id, knock)
         notify()
