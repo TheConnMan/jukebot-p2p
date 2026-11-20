@@ -29,7 +29,7 @@ export class PublicRooms {
     this.requests = Promise.resolve()
     this.heartbeat = setInterval(() => this.publish(true), 60000)
     this.sweep = setInterval(() => {
-      for (const [id, knock] of this.knocks) if (knock.until <= Date.now()) this.knocks.delete(id)
+      this.expire()
       for (const [id, until] of this.settled) if (until <= Date.now()) this.settled.delete(id)
       notify()
     }, 10000)
@@ -38,6 +38,16 @@ export class PublicRooms {
   request(path, options) {
     this.requests = this.requests.then(() => directory(path, options)).catch(() => {})
     return this.requests
+  }
+
+  // A knock nobody answered leaves a line in chat. Only the leader writes it,
+  // like decide(), so there is one per knock.
+  expire() {
+    for (const [id, knock] of this.knocks) {
+      if (knock.until > Date.now()) continue
+      this.knocks.delete(id)
+      if (this.leader() === selfId && this.current().state?.public) this.activity(`Missed knock: ${knock.name} wanted to join`, this.current().profile, 'missed')
+    }
   }
 
   leader() {
@@ -123,7 +133,7 @@ export class PublicRooms {
     this.resolve({...decision, peerId: knock.peerId})
     this.broadcast({...decision, peerId: knock.peerId})
     this.reply(knock, decision.accept)
-    if (decision.accept) this.activity(`${actor.name} let ${knock.name} in`, actor)
+    this.activity(`${actor.name} ${decision.accept ? 'let' : 'declined'} ${knock.name}${decision.accept ? ' in' : ''}`, actor)
   }
 
   // The visitor gets what it needs to land on the room's video: the code, the

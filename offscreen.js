@@ -419,8 +419,8 @@ const publicRooms = new PublicRooms(
     else actions.answer.send(data, {target: leader})
   },
   (code, tabId, landing) => chrome.runtime.sendMessage({to: 'bg', type: 'admitted', code, tabId, ...landing}).catch(() => {}),
-  (text, actor) => {
-    const m = {...entry(text, {kind: 'event', tag: 'admit'}), by: actor.userId, name: actor.name}
+  (text, actor, tag = 'admit') => {
+    const m = {...entry(text, {kind: 'event', tag}), by: actor.userId, name: actor.name}
     addChat([m], false, actor.userId === profile.userId)
     actions.chat.send([m])
   },
