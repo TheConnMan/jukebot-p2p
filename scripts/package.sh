@@ -22,6 +22,7 @@ SHIPPED=(
   sounds.js
   room-tab.js
   up-next.js
+  idle.js
   vendor/trystero.js
   icon16.png
   icon48.png

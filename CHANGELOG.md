@@ -4,6 +4,8 @@
 
 Every knock on a public room now leaves a line in chat for everyone: who let the knocker in, who declined, or a bold "Missed knock" line when nobody answered in time, so you can reach out and tell them to try again. The lines make no extra notification, sound or unread count.
 
+A public room now leaves the public list while every member's computer is idle. Each browser watches its own computer with Chrome's idle detection (new `idle` permission) and tells the room only whether it is idle, never when or why. A computer counts as idle after 2 hours without input, or as soon as it is locked. Change the time in the side panel (30 minutes, 1 hour, 2 hours, 4 hours or Never). When everyone in the room is idle the listing is removed, and it comes back as soon as anyone is active again. The room stays public, nobody is removed and playback is untouched. Members on older versions count as active.
+
 ## 0.6.2
 
 The Up next list in the side panel can collapse to the now-playing line and the first queued item, with a "+N more" note. It collapses on its own when the panel is shorter than 800px so chat gets the room, and a Collapse or Show all button in its header overrides that until the panel crosses the threshold again. The choice is not saved.

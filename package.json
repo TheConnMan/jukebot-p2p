@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/remembered.test.mjs test/reactions.test.mjs test/content.test.mjs test/notify.test.mjs test/room-tab.test.mjs test/up-next.test.mjs test/knock-history.test.mjs",
+    "test": "node --test test/remembered.test.mjs test/reactions.test.mjs test/content.test.mjs test/notify.test.mjs test/room-tab.test.mjs test/up-next.test.mjs test/knock-history.test.mjs test/idle.test.mjs",
     "test:e2e": "node test/e2e.mjs",
     "test:e2e:reactions": "node test/e2e-reactions.mjs",
     "test:e2e:sounds": "node test/e2e-sounds.mjs",
