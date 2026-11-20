@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 Every knock on a public room now leaves a line in chat for everyone: who let the knocker in, who declined, or a bold "Missed knock" line when nobody answered in time, so you can reach out and tell them to try again. The lines make no extra notification, sound or unread count.
 
