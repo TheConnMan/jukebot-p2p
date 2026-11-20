@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+A public room keeps one open knock per lobby peer, and at most five open knocks. Another knock from the same peer, or any knock once five are open, is ignored, so a client cannot flood the room chat and knock sound by sending new ids. A flood of new peer ids can still fill those five and block a real knock until they expire. That is accepted.
+
 ## 0.7.0
 
 Every knock on a public room now leaves a line in chat for everyone: who let the knocker in, who declined, or a bold "Missed knock" line when nobody answered in time, so you can reach out and tell them to try again. The lines make no extra notification, sound or unread count.
