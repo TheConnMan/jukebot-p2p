@@ -132,7 +132,7 @@ function renderLog(chat, inRoom) {
   log.replaceChildren(...chat.map(m => {
     if (m.kind === 'event') {
       // Lines that start with the actor's name show the name in their color.
-      const div = el('div', 'msg event')
+      const div = el('div', m.tag === 'missed' ? 'msg event missed' : 'msg event')
       if (m.name && m.text.startsWith(`${m.name} `)) div.append(person(m.name, m.by, m.self === true), m.text.slice(m.name.length))
       else div.append(m.text)
       return div
